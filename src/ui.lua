@@ -1,4 +1,4 @@
--- LUB 2.2: WindUI 1.6.66, with Game, Games List and Settings only.
+-- LUB 2.2.1: WindUI 1.6.66, with Game, Games List and Settings only.
 local env = getgenv()
 local runtime = env.LUBRuntime
 local source = game:HttpGet("https://github.com/Footagesus/WindUI/releases/download/1.6.66/main.lua")
@@ -33,22 +33,33 @@ local GamesTab = Window:Tab({ Title = "Games List", Icon = "list" })
 local SettingsTab = Window:Tab({ Title = "Settings", Icon = "settings" })
 Window:SelectTab(1)
 
+local function insetButtonIcon(button)
+    -- Keep WindUI's full-width, left-aligned text layout; only inset the icon.
+    local inset = 18
+    button.UIElements.ButtonIcon.Position = UDim2.new(1, -inset, 0.5, 0)
+    -- Reserve the same extra space so wrapped text cannot overlap the icon.
+    local textFrame = button.ButtonFrame.UIElements.Container.TitleFrame
+    local size = textFrame.Size
+    textFrame.Size = UDim2.new(size.X.Scale, size.X.Offset - inset, size.Y.Scale, size.Y.Offset)
+end
+
 local gameList = game:GetService("HttpService"):JSONDecode(env.LUBRead("src/gameslist.json"))
 local supported
 GamesTab:Section({ Title = "Supported Game" })
 for _, entry in ipairs(gameList) do
     if tostring(game.PlaceId) == tostring(entry.id) then supported = entry end
-    GamesTab:Button({
+    local joinButton = GamesTab:Button({
         Title = entry.game,
         Desc = "Place ID: " .. tostring(entry.id),
         Icon = "play",
-        Justify = "Left",
+        Justify = "Between",
         IconAlign = "Right",
         Callback = function()
             if not runtime.alive then return end
             game:GetService("TeleportService"):Teleport(tonumber(entry.id), game:GetService("Players").LocalPlayer)
         end,
     })
+    insetButtonIcon(joinButton)
 end
 
 SettingsTab:Section({ Title = "Preferences" })
@@ -78,11 +89,12 @@ SettingsTab:Toggle({
 })
 -- WindUI intentionally does not invoke toggle callbacks for their initial value.
 setRendering(settings.disable_3d_rendering)
-SettingsTab:Button({
+local unloadButton = SettingsTab:Button({
     Title = "Unload LUB", Desc = "Close LUB and stop farming.", Icon = "power",
-    Justify = "Left", IconAlign = "Right",
+    Justify = "Between", IconAlign = "Right",
     Callback = function() runtime.cleanup() end,
 })
+insetButtonIcon(unloadButton)
 
 if supported then
     local ok, err = pcall(function()

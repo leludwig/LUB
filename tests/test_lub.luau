@@ -218,6 +218,13 @@ local function setup(options)
                 control.Desc = config.Desc
                 control.Value = config.Value
                 control.Callback = config.Callback
+                if elementKind == "Button" then
+                    -- Public objects exposed by WindUI 1.6.66's Button element.
+                    control.UIElements = { ButtonIcon = { Position = globals.UDim2.new(1, 0, 0.5, 0) } }
+                    control.ButtonFrame = { UIElements = { Container = {
+                        TitleFrame = { Size = globals.UDim2.new(1, -20, 0, 0) },
+                    } } }
+                end
                 function control:SetDesc(text) self.Desc = text end
                 function control:Set(value, isCallback)
                     self.Value = value
@@ -260,7 +267,7 @@ local function setup(options)
         return "return getgenv().TEST_WINDUI"
     end
     if options.legacy then
-        globals.LUBRuntime = { alive = true, version = "2.1.0", cleanup = function() state.legacyStopped = true end }
+        globals.LUBRuntime = { alive = true, version = "2.2.0", cleanup = function() state.legacyStopped = true end }
     end
     globals.LUBSources = SOURCES
     local initialized, initError = pcall(function() state:load("src/init.lua") end)
@@ -500,7 +507,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.2.0")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.2.1")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)

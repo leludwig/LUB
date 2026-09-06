@@ -5,8 +5,10 @@ LUB für **Chicken Farm**, Place-ID **137233438285284**, mit der Oberfläche von
 ## Starten
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/leludwig/LUB/main/LUB.lua?v=2.2"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/leludwig/LUB/main/LUB.lua?t=" .. os.time()))()
 ```
+
+Dieser Startbefehl bleibt bei zukünftigen Updates gleich. Er lädt LUB von `main`; der automatisch angehängte Zeitstempel verhindert, dass dieselbe Download-URL aus einem alten Cache verwendet wird. Eine Versionsnummer muss nicht von Hand geändert werden. Nach einem Update den gleichen Befehl erneut ausführen.
 
 LUB lädt WindUI **1.6.66** aus dem [offiziellen Release](https://github.com/Footagesus/WindUI/releases/tag/1.6.66). Die Oberfläche hat genau drei Tabs: **Game**, **Games List** und **Settings**.
 
@@ -29,7 +31,7 @@ Die lokale Entfernung entspricht dem Original und ist keine Bestätigung des Spi
 
 Die Liste enthält ausschließlich **Chicken Farm / 137233438285284**. Im Ordner `src/games` liegt ebenfalls nur dieses Spielskript. Die zugehörige Listendatei ist `src/gameslist.json`.
 
-Ein Klick auf Chicken Farm oder das Play-Symbol tritt dem Spiel bei, auch wenn du dich bereits in diesem Spiel befindest. Das Symbol steht direkt neben dem Textbereich.
+Ein Klick auf Chicken Farm oder das Play-Symbol tritt dem Spiel bei, auch wenn du dich bereits in diesem Spiel befindest. Der Text steht linksbündig; das Play-Symbol ist um 18 Pixel vom bisherigen rechten Rand eingerückt. Dieselbe Ausrichtung gilt für Unload LUB.
 
 ## Settings
 
@@ -39,7 +41,7 @@ Ein Klick auf Chicken Farm oder das Play-Symbol tritt dem Spiel bei, auch wenn d
 
 WindUI lässt sich mit **Insert (Einfg)** aus- und einblenden. Die kleine **LUB**-Schaltfläche öffnet das Fenster ebenfalls.
 
-Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Alte Einträge für andere Spiele werden beim Laden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.2; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
+Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Alte Einträge für andere Spiele werden beim Laden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.2.1; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
 
 Optional kann die Startdatei lokal als `LUB/LUB.lua` im Workspace der Ausführungsumgebung abgelegt und so ausgeführt werden:
 
