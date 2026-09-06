@@ -4,7 +4,8 @@ local function expect(value, message) assert(value, message or "Expectation fail
 
 local function setup(options)
     options = options or {}
-    local state = { now = 0, jobs = {}, calls = {}, warnings = {}, saved = {}, destroyed = 0, trace = {} }
+    local state = { now = 0, jobs = {}, calls = {}, warnings = {}, saved = {}, destroyed = 0, trace = {},
+        serverRequests = {}, joins = {}, nativePrompts = {} }
     local globals = setmetatable({}, { __index = getfenv() })
     state.globals = globals
     globals._G = {}
@@ -163,6 +164,9 @@ local function setup(options)
         ReplicatedStorage = storage, Players = { LocalPlayer = player }, CoreGui = node("CoreGui"),
         UserInputService = node("UserInputService"), GuiService = node("GuiService"),
         HttpService = {
+            UrlEncode = function(_, value)
+                return (value:gsub("[^%w%-_%.~]", function(c) return string.format("%%%02X", string.byte(c)) end))
+            end,
             JSONDecode = function(_, text)
                 if text == SOURCES["src/gameslist.json"] then return GAME_LIST end
                 if text == "invalid" then error("invalid config") end
@@ -177,10 +181,28 @@ local function setup(options)
         },
         RunService = { Heartbeat = signal(), Set3dRenderingEnabled = function(_, enabled) state.rendering = enabled end },
         TweenService = {},
-        TeleportService = { Teleport = function(_, id, target) state.teleport = id; state.teleportPlayer = target end },
+        TeleportService = {
+            TeleportInitFailed = signal(),
+            Teleport = function(_, id, target)
+                state.rejoinCalls = (state.rejoinCalls or 0) + 1
+                state.teleport = id; state.teleportPlayer = target
+            end,
+            TeleportToPlaceInstance = function(_, id, serverId, target)
+                state.teleport = id; state.teleportPlayer = target
+                table.insert(state.joins, { place = id, serverId = serverId, player = target })
+                if options.joinError then error(options.joinError) end
+            end,
+            PromptExperienceDetailsAsync = function(_, target, universe)
+                table.insert(state.nativePrompts, { player = target, universe = universe })
+                if options.nativeError then error("Dialog unavailable") end
+                if options.nativeDelay then globals.task.wait(options.nativeDelay) end
+                return options.nativeAttempted and globals.Enum.PromptExperienceDetailsResult.TeleportAttempted
+                    or globals.Enum.PromptExperienceDetailsResult.PromptClosed
+            end,
+        },
     }
     state.services = services
-    globals.game = { PlaceId = options.place or 137233438285284,
+    globals.game = { PlaceId = options.place or 137233438285284, JobId = "current-server",
         IsLoaded = function() return true end, GetService = function(_, name) return assert(services[name], name) end }
     state.files = {}
     if options.config then state.saved.config = options.config; state.files["LUB/Config.json"] = "config" end
@@ -373,7 +395,7 @@ local function setup(options)
                     control.UIElements = { ButtonIcon = { Position = globals.UDim2.new(1, 0, 0.5, 0) } }
                     control.ButtonFrame = { UIElements = { Container = {
                         TitleFrame = { Size = globals.UDim2.new(1, -20, 0, 0) },
-                    } } }
+                    } }, SetDesc = function(_, text) control.Desc = text end }
                 end
                 function control:SetDesc(text) self.Desc = text end
                 function control:Set(value, isCallback)
@@ -413,13 +435,42 @@ local function setup(options)
             return window
         end,
     }
+    local function serverResponse(url)
+        table.insert(state.serverRequests, url)
+        if options.listDelay then globals.task.wait(options.listDelay) end
+        if options.listError then error("Server list request failed") end
+        local page = url:find("&cursor=", 1, true) and 2 or 1
+        local value = options.serverPages and options.serverPages[page] or {
+            data = {
+                { id = "current-server", playing = 1, maxPlayers = 6 },
+                { id = "full-server", playing = 6, maxPlayers = 6 },
+                { id = "empty-server", playing = 0, maxPlayers = 6 },
+                { id = "open-server-1", playing = 2, maxPlayers = 6 },
+                { id = "open-server-2", playing = 3, maxPlayers = 6 },
+                { id = "open-server-3", playing = 4, maxPlayers = 6 },
+            },
+        }
+        local token = "servers:" .. #state.serverRequests
+        state.saved[token] = value
+        return token
+    end
+    if options.executorRequest then
+        globals.request = function(args)
+            expect(args.Method == "GET" and args.Url:match("^https://games%.roblox%.com/"))
+            return { StatusCode = options.httpStatus or 200, Body = serverResponse(args.Url) }
+        end
+    end
     globals.game.HttpGet = function(_, url)
+        if url:match("^https://games%.roblox%.com/v1/games/%d+/servers/Public%?") then
+            expect(not options.executorRequest, "Did not use available executor request")
+            return serverResponse(url)
+        end
         expect(url == "https://github.com/Footagesus/WindUI/releases/download/1.6.66/main.lua", "Unexpected dependency URL")
         if options.failWindUI then error("WindUI download failed") end
         return "return getgenv().TEST_WINDUI"
     end
     if options.legacy then
-        globals.LUBRuntime = { alive = true, version = "2.3.0", cleanup = function() state.legacyStopped = true end }
+        globals.LUBRuntime = { alive = true, version = "2.4.0", cleanup = function() state.legacyStopped = true end }
     end
     globals.LUBSources = SOURCES
     local initialized, initError = pcall(function() state:load("src/init.lua") end)
@@ -476,6 +527,7 @@ test("WindUI has exactly three tabs and both registered games can be joined", fu
     expect(entries == 2 and s:find("Chicken Farm").Desc:find("137233438285284", 1, true))
     s:click("Sell Ores")
     expect(s.teleport == 122572082932179)
+    s:advance(31)
     s:click("Chicken Farm")
     expect(s.window.Selected == 2 and s.teleport == 137233438285284, "Game button must join even from the same place")
     expect(s.teleportPlayer == s.services.Players.LocalPlayer, "Join must target the local player")
@@ -663,7 +715,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.4.0")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.4.1")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -797,6 +849,109 @@ test("WindUI settings persist separately and stale targets and infinity are not 
     expect(sell.autoRoll and sell.maxPayback == 3600 and sell.cycleWait == 2)
     expect(sell.base == nil and sell.maxUpgradePayback == nil)
     expect(s.globals.LUBRuntime.sellOres.CONFIG.maxUpgradePayback == math.huge)
+end)
+
+test("game joining chooses a live public server with space and excludes the current server", function()
+    local s = setup()
+    s:click("Chicken Farm")
+    expect(#s.joins == 1 and s.joins[1].serverId == "open-server-1")
+    expect(s.joins[1].place == s.globals.game.PlaceId and s.joins[1].player == s.services.Players.LocalPlayer)
+    expect(s.serverRequests[1]:find("/servers/Public?", 1, true)
+        and s.serverRequests[1]:find("excludeFullGames=true", 1, true))
+    expect(not s.rejoinCalls and #s.nativePrompts == 0)
+end)
+
+test("server lookup paginates and supports the executor HTTP transport", function()
+    local s = setup({ executorRequest = true, serverPages = {
+        { data = { { id = "current-server", playing = 1, maxPlayers = 6 } }, nextPageCursor = "next+/=" },
+        { data = { { id = "page-two", playing = 1, maxPlayers = 6 } } },
+    } })
+    s:click("Chicken Farm")
+    expect(#s.serverRequests == 2 and s.serverRequests[2]:find("cursor=next%2B%2F%3D", 1, true))
+    expect(s.joins[1].serverId == "page-two")
+end)
+
+test("full or closed servers trigger fresh lookups and at most three distinct attempts", function()
+    local s = setup()
+    s:click("Chicken Farm")
+    local tp, enum, player = s.services.TeleportService, s.globals.Enum, s.services.Players.LocalPlayer
+    for i = 1, 3 do
+        expect(#s.joins == i and s.joins[i].serverId == "open-server-" .. i)
+        tp.TeleportInitFailed:Fire(player, enum.TeleportResult.GameFull, "Server full", s.globals.game.PlaceId,
+            { ServerInstanceId = s.joins[i].serverId })
+        s:advance(1.1)
+    end
+    expect(#s.serverRequests == 3 and #s.joins == 3 and #s.nativePrompts == 1)
+    expect(not s.globals.LUBRuntime.joinInProgress)
+end)
+
+test("restricted join opens Roblox's experience dialog and does not rejoin the source game", function()
+    local s = setup({ nativeDelay = 1 })
+    s:click("Auto Rejoin (when kicked)")
+    s:click("Sell Ores")
+    local player = s.services.Players.LocalPlayer
+    s.services.GuiService.ErrorMessageChanged:Fire("Attempted to teleport to a restricted place")
+    s.services.TeleportService.TeleportInitFailed:Fire(player, s.globals.Enum.TeleportResult.Unauthorized,
+        "Restricted", 122572082932179)
+    s:advance(0)
+    expect(#s.joins == 1 and #s.nativePrompts == 1)
+    expect(s.nativePrompts[1].universe == 10336278580 and s.nativePrompts[1].player == player)
+    expect(not s.rejoinCalls)
+    s:advance(1)
+    s.services.GuiService.ErrorMessageChanged:Fire("Teleport failed"); s:advance(0)
+    expect(not s.rejoinCalls and not s.globals.LUBRuntime.joinInProgress)
+end)
+
+test("unavailable or empty server lists use Roblox matchmaking and handle denied native joins", function()
+    for _, options in ipairs({ { listError = true }, { serverPages = { { data = {} } } },
+        { executorRequest = true, httpStatus = 429 } }) do
+        options.nativeAttempted = true
+        local s = setup(options)
+        s:click("Chicken Farm")
+        expect(#s.joins == 0 and #s.nativePrompts == 1)
+        expect(s.globals.LUBRuntime.joinInProgress)
+        s.services.TeleportService.TeleportInitFailed:Fire(s.services.Players.LocalPlayer,
+            s.globals.Enum.TeleportResult.Unauthorized, "Restricted", 137233438285284)
+        s:advance(0)
+        expect(not s.globals.LUBRuntime.joinInProgress)
+        expect(s:find("Chicken Farm").Desc:find("https://www.roblox.com/games/137233438285284", 1, true))
+        expect(#s.nativePrompts == 1, "Failure reopened the native dialog")
+    end
+end)
+
+test("synchronous teleport and dialog errors are reported without a stuck join", function()
+    local s = setup({ joinError = "restricted place (773)", nativeError = true })
+    s:click("Chicken Farm")
+    expect(#s.joins == 1 and #s.nativePrompts == 1 and not s.globals.LUBRuntime.joinInProgress)
+    expect(s:find("Chicken Farm").Desc:find("press Play", 1, true))
+end)
+
+test("double clicks and unrelated teleport failures do not start additional joins", function()
+    local s = setup()
+    s:click("Chicken Farm"); s:click("Chicken Farm"); s:click("Sell Ores")
+    expect(#s.joins == 1 and #s.serverRequests == 1)
+    local tp, enum, player = s.services.TeleportService, s.globals.Enum, s.services.Players.LocalPlayer
+    tp.TeleportInitFailed:Fire(player, enum.TeleportResult.GameFull, "Full", 122572082932179)
+    tp.TeleportInitFailed:Fire({}, enum.TeleportResult.GameFull, "Full", 137233438285284)
+    tp.TeleportInitFailed:Fire(player, enum.TeleportResult.GameFull, "Old failure", 137233438285284,
+        { ServerInstanceId = "old-server" })
+    s:advance(2)
+    expect(#s.joins == 1 and #s.nativePrompts == 0)
+    s:advance(29); s:click("Sell Ores")
+    expect(#s.joins == 2 and s.joins[2].place == 122572082932179)
+end)
+
+test("unload cancels pending server lookup and delayed retries", function()
+    local s = setup({ listDelay = 2 })
+    s:click("Chicken Farm"); s:click("Unload LUB"); s:advance(3)
+    expect(#s.joins == 0 and #s.nativePrompts == 0)
+    local retry = setup()
+    retry:click("Chicken Farm")
+    retry.services.TeleportService.TeleportInitFailed:Fire(retry.services.Players.LocalPlayer,
+        retry.globals.Enum.TeleportResult.GameFull, "Full", 137233438285284)
+    retry:advance(0); retry:click("Unload LUB"); retry:advance(3)
+    expect(#retry.joins == 1 and #retry.serverRequests == 1)
+    for _, listener in ipairs(retry.services.TeleportService.TeleportInitFailed.listeners) do expect(not listener.connected) end
 end)
 
 print(string.format("%d behavioral tests passed", passed))

@@ -1,4 +1,4 @@
--- LUB 2.4: WindUI 1.6.66, with Game, Games List and Settings only.
+-- LUB 2.4.1: WindUI 1.6.66, with Game, Games List and Settings only.
 local env = getgenv()
 local runtime = env.LUBRuntime
 local source = game:HttpGet("https://github.com/Footagesus/WindUI/releases/download/1.6.66/main.lua")
@@ -47,7 +47,8 @@ local gameList = runtime.games
 local supported = runtime.gameEntry
 GamesTab:Section({ Title = "Supported Games" })
 for _, entry in ipairs(gameList) do
-    local joinButton = GamesTab:Button({
+    local joinButton
+    joinButton = GamesTab:Button({
         Title = entry.game,
         Desc = "Place ID: " .. tostring(entry.id),
         Icon = "play",
@@ -55,7 +56,7 @@ for _, entry in ipairs(gameList) do
         IconAlign = "Right",
         Callback = function()
             if not runtime.alive then return end
-            game:GetService("TeleportService"):Teleport(tonumber(entry.id), game:GetService("Players").LocalPlayer)
+            runtime.joinGame(entry, function(message) joinButton.ButtonFrame:SetDesc(message) end)
         end,
     })
     insetButtonIcon(joinButton)

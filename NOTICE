@@ -21,6 +21,9 @@ user-supplied Sell Ores script by seltonmt, retaining its gameplay routines,
 defaults and author credit. Replaced its separate UI with WindUI controls in
 LUB, added per-game persistence and unload cleanup, and forward-declared the
 shared FURNACE state to fix the original upgrade guard's local scope.
+Changes in LUB 2.4.1: added fresh public-server lookup for Games List, excluding
+full/current servers, bounded retries, Roblox's official experience join dialog,
+visible join errors and cancellation. Suppressed auto-rejoin during game changes.
 Original contributors: esore/vaehz, __ven0x__, wirlypirly12.
 The original Apache License 2.0 is retained in LICENSE.
 

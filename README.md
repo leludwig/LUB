@@ -50,7 +50,13 @@ Für die Prompt-Aktionen benötigt die Ausführungsumgebung `fireproximityprompt
 
 Die Liste enthält **Chicken Farm / 137233438285284** und **Sell Ores / 122572082932179**. Jedes Spiel hat sein eigenes Skript im Ordner `src/games`. Die zugehörige Listendatei ist `src/gameslist.json`; sie bestimmt auch, welches Modul geladen wird und welche Spieleinstellungen erhalten bleiben.
 
-Ein Klick auf einen Spieleintrag oder dessen Play-Symbol tritt dem Spiel bei, auch wenn du dich bereits darin befindest. Der Text steht linksbündig; das Play-Symbol ist um 18 Pixel vom bisherigen rechten Rand eingerückt. Dieselbe Ausrichtung gilt für Unload LUB.
+Ein Klick auf einen Spieleintrag oder dessen Play-Symbol fragt die aktuelle öffentliche Serverliste bei Roblox ab und wählt einen laufenden Server mit freien Plätzen. Volle Server, leere Einträge und der aktuelle `game.JobId` werden übersprungen. Server-IDs werden nicht gespeichert. Pro Suche werden höchstens drei Seiten geprüft; bei einem fehlgeschlagenen Beitritt wird die Liste erneut abgefragt und insgesamt höchstens drei verschiedene Server versucht.
+
+Bei fehlender Serverliste oder einer Zugriffsablehnung öffnet LUB den offiziellen Roblox-Spieldialog. Dort **Play / Join** drücken, damit Roblox die Serverzuordnung übernimmt. Die Universe-IDs dafür stehen getrennt von den Place-IDs in der Games List. Falls Roblox auch diesen Beitritt ablehnt, zeigt der Spieleintrag die offizielle Spielseite an, auf der du das Spiel normal starten kannst. Einschränkungen des Spiels oder des Kontos werden dadurch nicht aufgehoben. Siehe [Roblox-Spieldialog](https://create.roblox.com/docs/reference/engine/classes/TeleportService#PromptExperienceDetailsAsync) und [Teleport-Zugriffseinstellungen](https://create.roblox.com/docs/projects/teleport#configure-secure-teleportation).
+
+Der Spieleintrag zeigt Such-, Beitritts- und Fehlerstatus an. Mehrfachklicks starten keine parallelen Beitritte. **Auto Rejoin** reagiert während eines Spielwechsels und kurz nach dessen Fehlschlag nicht auf Teleport-Fehlermeldungen. **Unload LUB** beendet auch wartende Serversuchen und Wiederholungen.
+
+Der Text steht weiterhin linksbündig; das Play-Symbol ist um 18 Pixel vom bisherigen rechten Rand eingerückt. Dieselbe Ausrichtung gilt für Unload LUB.
 
 Bei einem unbekannten Spiel zeigt der Game-Tab **Game not supported** mit der aktuellen Place-ID und dem Hinweis, dass dafür kein LUB-Skript verfügbar ist. Games List und Settings bleiben erreichbar.
 
@@ -62,7 +68,7 @@ Bei einem unbekannten Spiel zeigt der Game-Tab **Game not supported** mit der ak
 
 WindUI lässt sich mit **Insert (Einfg)** aus- und einblenden. Die kleine **LUB**-Schaltfläche öffnet das Fenster ebenfalls.
 
-Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Die beiden unterstützten Spiele haben getrennte Einstellungen; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.4; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
+Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Die beiden unterstützten Spiele haben getrennte Einstellungen; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.4.1; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
 
 Optional kann die Startdatei lokal als `LUB/LUB.lua` im Workspace der Ausführungsumgebung abgelegt und so ausgeführt werden:
 
@@ -81,6 +87,7 @@ src/
     137233438285284.lua  # Alle Chicken-Farm-Funktionen inklusive Eiermodus
   gameslist.json        # Unterstützte Spiele und ihre Place-IDs
   init.lua              # Start, Konfiguration und Aufräumen
+  join.lua              # Öffentliche Serverwahl und Roblox-Spieldialog
   ui.lua                # WindUI-Fenster mit drei Tabs
 LUB.lua                 # Generierte Startdatei
 ```
@@ -94,7 +101,7 @@ python tools/test.py --luau-dir .tools/luau
 
 Der Build braucht nur Python 3. Für die Tests werden `luau` und `luau-compile` aus den [offiziellen Luau-Releases](https://github.com/luau-lang/luau/releases) benötigt. Der Build prüft eindeutige Place-IDs und die Übereinstimmung zwischen Games List und den enthaltenen Spielskripten.
 
-Geprüft werden fünf Luau-Dateien einschließlich Startdatei und 27 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Chicken-Farm-Ablauf, automatische Basiswahl, Sell-Ores-Prompt-Reihenfolge und Wartezeiten, Roll-Käufe, Verkauf, verfügbare Belohnungen, Upgrade-Käufe, Ofen-Durchsatz und Erzentscheidungen, Entladen sowie Spielbeitritt, Insert-Taste, getrennte Einstellungen, unbekannte Spiele und Versionswechsel. Die Darstellung im Roblox-Client und die Annahme der Aktionen auf aktuellen Spielservern wurden nicht live verifiziert.
+Geprüft werden sechs Luau-Dateien einschließlich Startdatei und 35 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Chicken-Farm-Ablauf, automatische Basiswahl, Sell-Ores-Prompt-Reihenfolge und Wartezeiten, Roll-Käufe, Verkauf, verfügbare Belohnungen, Upgrade-Käufe, Ofen-Durchsatz und Erzentscheidungen, Entladen sowie Spielbeitritt, Insert-Taste, getrennte Einstellungen, unbekannte Spiele und Versionswechsel. Die Beitrittstests decken aktuelle/volle Server, Pagination, HTTP-Fehler, begrenzte Wiederholungen, Zugriffsablehnungen, Roblox-Dialog, Mehrfachklicks, Timeouts und Abbruch beim Entladen ab. Die öffentlichen Serverlisten und die Zuordnung der Startplätze wurden über die Roblox-API geprüft. Die Darstellung im Roblox-Client und die Annahme der Aktionen auf aktuellen Spielservern wurden nicht live verifiziert.
 
 ## Herkunft
 
