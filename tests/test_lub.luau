@@ -7,6 +7,7 @@ local function setup(options)
     local state = { now = 0, jobs = {}, calls = {}, warnings = {}, saved = {}, destroyed = 0, trace = {} }
     local globals = setmetatable({}, { __index = getfenv() })
     state.globals = globals
+    globals._G = {}
     globals.getgenv = function() return globals end
     globals.warn = function(message) table.insert(state.warnings, message) end
     globals.os = setmetatable({ clock = function() return state.now end }, { __index = os })
@@ -53,11 +54,37 @@ local function setup(options)
         return event
     end
     local events = { Activated = true, FocusLost = true, InputBegan = true, InputChanged = true, InputEnded = true,
-        ErrorMessageChanged = true, ChildAdded = true, ChildRemoved = true }
+        ErrorMessageChanged = true, ChildAdded = true, ChildRemoved = true, OnClientEvent = true }
     local methods = {}
     function methods:GetChildren() return table.clone(self._children) end
-    function methods:FindFirstChild(name)
+    function methods:GetDescendants()
+        local children = {}
+        for _, child in ipairs(self._children) do
+            table.insert(children, child)
+            for _, descendant in ipairs(child:GetDescendants()) do table.insert(children, descendant) end
+        end
+        return children
+    end
+    function methods:FindFirstChild(name, recursive)
         for _, child in ipairs(self._children) do if child.Name == name then return child end end
+        if recursive then
+            for _, child in ipairs(self:GetDescendants()) do if child.Name == name then return child end end
+        end
+        return nil
+    end
+    function methods:WaitForChild(name) return self:FindFirstChild(name) end
+    function methods:FindFirstChildWhichIsA(class, recursive)
+        for _, child in ipairs(recursive and self:GetDescendants() or self:GetChildren()) do
+            if child:IsA(class) then return child end
+        end
+        return nil
+    end
+    function methods:FindFirstAncestorWhichIsA(class)
+        local ancestor = self.Parent
+        while ancestor do
+            if ancestor:IsA(class) then return ancestor end
+            ancestor = ancestor.Parent
+        end
         return nil
     end
     function methods:GetPropertyChangedSignal(name)
@@ -74,7 +101,7 @@ local function setup(options)
         self.Parent = nil
         for _, child in ipairs(self:GetChildren()) do child:Destroy() end
     end
-    function methods:IsA(class) return self.ClassName == class end
+    function methods:IsA(class) return self.ClassName == class or (class == "BasePart" and self.ClassName == "Part") end
     local function node(class, name, parent)
         local object = setmetatable({ _props = { ClassName = class, Name = name or class }, _children = {}, _signals = {}, _attrs = {} }, {
             __index = function(self, key)
@@ -120,6 +147,12 @@ local function setup(options)
     globals.UDim2.fromOffset = function(x, y) return globals.UDim2.new(0, x, 0, y) end
     globals.UDim2.fromScale = function(x, y) return globals.UDim2.new(x, 0, y, 0) end
     globals.Vector2 = { new = function(x, y) return { X = x, Y = y } end }
+    globals.Vector3 = { new = function(x, y, z)
+        return setmetatable({ X = x, Y = y, Z = z }, { __add = function(a, b)
+            return globals.Vector3.new(a.X + b.X, a.Y + b.Y, a.Z + b.Z)
+        end })
+    end }
+    globals.CFrame = { new = function(position) return { Position = position } end }
     globals.workspace = node("Workspace")
     local camera = node("Camera")
     camera.ViewportSize = { X = 1280, Y = 720 }
@@ -142,7 +175,8 @@ local function setup(options)
                 return key
             end,
         },
-        RunService = { Set3dRenderingEnabled = function(_, enabled) state.rendering = enabled end },
+        RunService = { Heartbeat = signal(), Set3dRenderingEnabled = function(_, enabled) state.rendering = enabled end },
+        TweenService = {},
         TeleportService = { Teleport = function(_, id, target) state.teleport = id; state.teleportPlayer = target end },
     }
     state.services = services
@@ -195,53 +229,121 @@ local function setup(options)
         end
     end
     if not options.lateWorld then state:world() end
-    if options.place == 122572082932179 and not options.noSellRemotes then
+    if options.place == 122572082932179 then
         local remotes = node("Folder", "Remotes", storage)
-        local drill = node("RemoteFunction", "BaseBuildTunnelAction", remotes)
-        local crates = node("RemoteFunction", "BaseCrateAction", remotes)
-        local availableAt, rewards, serial = {}, {}, 0
-        state.sellOptions = options
-        drill.InvokeServer = function(_, base, floor, tunnel, action)
-            table.insert(state.calls, { action = action, base = base, floor = floor, tunnel = tunnel, at = state.now })
-            globals.task.wait(0.1)
-            if options.rejectState and action == "GetDrillState" then return { success = false, message = "Wrong base" } end
-            local readyAt = availableAt[tunnel] or options.readyAt or 0
-            if action == "GetDrillState" then
-                return { success = true, result = {
-                    ready = state.now >= readyAt, remainingSeconds = math.max(0, readyAt - state.now),
-                    oreType = "Coal Ore", oreCount = 11, physicalDropCount = 5, level = 1,
-                } }
-            end
-            expect(action == "DrillTunnel", "Unobserved tunnel action: " .. tostring(action))
-            if options.drillRace then options.drillRace = false; return { success = false, message = "Regrowing" } end
-            expect(state.now >= readyAt, "Attempted to drill before the server cooldown expired")
-            serial = serial + 1
-            availableAt[tunnel] = state.now + 3.465
-            local ids = {}
-            for index = 1, 5 do
-                local id = "server-reward-" .. serial .. "-" .. index
-                rewards[id] = true
-                table.insert(ids, id)
-            end
-            if options.noRewardIds then return { success = true, result = { GrowTime = 3.465 } } end
-            return { success = true, result = {
-                PendingRewardIds = not options.singleReward and ids or nil,
-                PendingRewardId = ids[1], GrowTime = 3.465, Status = "Regrowing", OreCount = 11,
-            } }
+        local bases = node("Folder", "Bases", globals.workspace)
+        node("Model", "Base1", bases):SetAttribute("OwnerUserId", 900)
+        player.UserId = 42
+        local base = node("Model", "Base4", bases)
+        base:SetAttribute("OwnerUserId", player.UserId)
+        state.base = base
+        local money = node("StringValue", "Money", node("Folder", "leaderstats", player))
+        money.Value = "$1000"
+        state.money = money
+        local function addMoney(amount)
+            money.Value = "$" .. tostring(tonumber(money.Value:sub(2)) + amount)
         end
-        crates.InvokeServer = function(_, base, action, ids)
-            expect(action == "CollectDroneOres", "Unobserved crate action: " .. tostring(action))
-            for _, id in ipairs(ids) do expect(rewards[id], "Collector used a stale or invented reward ID") end
-            table.insert(state.calls, { action = action, base = base, ids = table.clone(ids), at = state.now })
-            globals.task.wait(0.1)
-            if (options.collectFailures or 0) > 0 then
-                options.collectFailures = options.collectFailures - 1
-                return { success = false, message = "Drops not ready" }
+        player.Character = node("Model", "Character")
+        state.hrp = node("Part", "HumanoidRootPart", player.Character)
+        state.hrp.CFrame = globals.CFrame.new(globals.Vector3.new(0, 0, 0))
+        node("ModuleScript", "OreMetadata", storage).Module = {
+            ByName = { ["Stone Ore"] = { seedCost = 100, baseIncome = 1, growTimeSeconds = 1 } },
+            RarityRank = { Common = 1 },
+        }
+        node("ModuleScript", "GearMetadata", storage).Module = { List = function() return {} end }
+        globals.require = function(module) return assert(module and module.Module, "Missing module") end
+        local rollEvent = node("RemoteEvent", "RollerRollEvent", storage)
+        state.crateEvent = node("RemoteEvent", "BaseCrateStateChanged", remotes)
+        node("RemoteEvent", "AdminEventClockState", remotes)
+        node("RemoteEvent", "AlienEventDialogue", remotes)
+        local function prompt(parent, name, enabled, action)
+            local part = node("Part", name .. "Part", parent)
+            part.Position = globals.Vector3.new(10, 2, 30)
+            local result = node("ProximityPrompt", name, part)
+            result.Enabled = enabled
+            result.ActionText = action or "Use"
+            return result
+        end
+        local roller = node("Folder", "Roller", base)
+        local lever = node("Part", "Lever", roller)
+        lever.Position = globals.Vector3.new(10, 2, 30)
+        local rollPrompt = node("ProximityPrompt", "RollPrompt", lever)
+        rollPrompt.Enabled = true
+        local pedestals = node("Folder", "OrePedestals", base)
+        local pedestal = node("Model", "RolledOrePedestal1", pedestals)
+        local buyPrompt = prompt(pedestal, "LocalRollingOreDisplayPrompt", true, "Buy")
+        local spawnPoint = node("Part", "CrateSpawnPoint", node("Model", "CrateMaker", base))
+        spawnPoint.Position = globals.Vector3.new(20, 2, 30)
+        local pickPrompt = node("ProximityPrompt", "PickUpOresPrompt", spawnPoint)
+        pickPrompt.Enabled = true
+        local sellPrompt = prompt(node("Model", "SellerTable", base), "SellOresPrompt", false)
+        local furnace = node("Model", "Furnace", base)
+        furnace:SetAttribute("FurnacePurchased", false)
+        state.furnaceRate = node("TextLabel", "CurrentProcessingRate", furnace)
+        state.furnaceRate.Text = "$1000/s"
+        node("TextLabel", "AmountRemaining", furnace).Text = "$0"
+        node("Model", "Floor1", node("Folder", "Floors", base))
+        local board = node("Model", "BaseUpgradesBoardFloor1", node("Folder", "BaseUpgradesBoards", base))
+        if options.sellUpgrade then
+            local row = node("Frame", "SpeedRow", board)
+            node("TextLabel", "Label", row).Text = "Drill Speed"
+            node("TextLabel", "UpgradeText", row).Text = "1 > 2"
+            state.upgradePrice = node("TextButton", "TextButton", row)
+            state.upgradePrice.Text = "$250"
+        end
+        state.prompts = {}
+        globals.fireproximityprompt = function(p)
+            expect(p.Enabled, "Used disabled prompt")
+            table.insert(state.prompts, { name = p.Name, at = state.now })
+            if p == rollPrompt then
+                rollEvent.OnClientEvent:Fire({ baseName = "Base4", results = {
+                    { pedestalName = "RolledOrePedestal1", oreName = "Stone Ore", rarity = "Common", seedCost = 100 },
+                } })
+            elseif p == buyPrompt then addMoney(-100)
+            elseif p == pickPrompt then pickPrompt.Enabled = false; sellPrompt.Enabled = true
+            elseif p == sellPrompt then pickPrompt.Enabled = true; sellPrompt.Enabled = false; addMoney(100) end
+        end
+        globals.getconnections = function() return {} end
+        local spins = options.sellRewards and 2 or 0
+        local daily = options.sellRewards == true
+        for _, name in ipairs({ "BaseBuildTunnelAction", "BaseUpgradeDrillSpeed", "GetDailyRewardsState",
+            "PlaytimeRewardsGetState", "OfflineEarningsClaimRequest", "GetLuckySpinState", "RequestLuckySpin", "CompleteLuckySpin" }) do
+            local remote = node("RemoteFunction", name, remotes)
+            remote.InvokeServer = function(_, ...)
+                local args = table.pack(...)
+                table.insert(state.calls, { action = name, args = args, at = state.now })
+                globals.task.wait(0.05)
+                if name == "BaseBuildTunnelAction" then
+                    expect(args[1] == "Base4" and args[2] == 1 and args[3] == "Tunnel1" and args[4] == "EquipBest")
+                    return { success = true, result = { inventoryCount = 0, changed = 0, equipped = {} } }
+                elseif name == "BaseUpgradeDrillSpeed" then
+                    expect(args[1] == "Base4" and args[2] == 1)
+                    addMoney(-250)
+                    state.upgradePrice.Text = "$100000"
+                    return { success = true, state = { level = 2 } }
+                elseif name == "GetDailyRewardsState" then return { isAvailable = daily }
+                elseif name == "PlaytimeRewardsGetState" then
+                    return { elapsed = 100, rewards = options.sellRewards and {
+                        { index = 4, unlockAt = 50 }, { index = 5, unlockAt = 200 },
+                    } or {} }
+                elseif name == "GetLuckySpinState" then return { spins = spins, remaining = 999 }
+                elseif name == "RequestLuckySpin" then
+                    if spins <= 0 then return { ok = false } end
+                    spins -= 1
+                    return { ok = true, spinId = "spin-" .. spins, reward = "Ore" }
+                end
+                return { success = true }
             end
-            for _, id in ipairs(ids) do rewards[id] = nil end
-            return { success = true, result = { BaseName = base, StoredMoney = 100, CrateCount = 1 } }
+        end
+        for _, name in ipairs({ "ClaimDailyReward", "PlaytimeRewardsClaim" }) do
+            node("RemoteEvent", name, remotes).FireServer = function(_, ...)
+                table.insert(state.calls, { action = name, args = table.pack(...), at = state.now })
+                if name == "ClaimDailyReward" then daily = false end
+                addMoney(10)
+            end
         end
     end
+
     function state:load(path)
         local chunk, err = loadstring(assert(SOURCES[path], path), "@" .. path)
         assert(chunk, err)
@@ -260,7 +362,7 @@ local function setup(options)
         local result = { Title = title, Kind = kind, Parent = parent, Elements = {} }
         table.insert(state.controls, result)
         if parent then table.insert(parent.Elements, result) end
-        for _, elementKind in ipairs({ "Section", "Paragraph", "Toggle", "Button", "Input" }) do
+        for _, elementKind in ipairs({ "Section", "Paragraph", "Toggle", "Button", "Input", "Slider", "Dropdown" }) do
             result[elementKind] = function(self, config)
                 local control = container(config.Title, elementKind, self)
                 control.Desc = config.Desc
@@ -317,7 +419,7 @@ local function setup(options)
         return "return getgenv().TEST_WINDUI"
     end
     if options.legacy then
-        globals.LUBRuntime = { alive = true, version = "2.2.1", cleanup = function() state.legacyStopped = true end }
+        globals.LUBRuntime = { alive = true, version = "2.3.0", cleanup = function() state.legacyStopped = true end }
     end
     globals.LUBSources = SOURCES
     local initialized, initError = pcall(function() state:load("src/init.lua") end)
@@ -561,7 +663,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.3.0")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.4.0")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -585,106 +687,116 @@ test("WindUI download failure leaves no active runtime", function()
     expect(not s.globals.LUBRuntime.alive)
 end)
 
-test("Sell Ores uses the recorded drill and collection protocol with fresh reward IDs", function()
-    local s = setup({ place = 122572082932179 })
-    expect(s.window.Config.Author == "Sell Ores" and #s.calls == 0)
-    s:click("Autofarm"); s:advance(5.7)
-    local expected = { "GetDrillState", "DrillTunnel", "CollectDroneOres", "GetDrillState", "DrillTunnel", "CollectDroneOres" }
-    expect(#s.calls == #expected)
-    for index, action in ipairs(expected) do
-        local call = s.calls[index]
-        expect(call.action == action and call.base == "Base1")
-        if action ~= "CollectDroneOres" then expect(call.floor == 1 and call.tunnel == (index <= 3 and "Tunnel3" or "Tunnel4")) end
+local function manualSellConfig(extra)
+    local config = { settings = {}, ["122572082932179"] = {
+        auto = false, autoBuyOre = false, autoGear = false, autoRewards = false,
+    } }
+    for key, value in pairs(extra or {}) do config["122572082932179"][key] = value end
+    return config
+end
+
+test("supplied Sell Ores script runs inside LUB and identifies its own base", function()
+    local s = setup({ place = 122572082932179, config = manualSellConfig() })
+    local core = s.globals.LUBRuntime.sellOres
+    expect(core and core.findBase() == s.base)
+    expect(#s.window.Tabs == 3 and s.window.Config.Author == "Sell Ores")
+    local toggles = 0
+    for _, control in ipairs(s.controls) do
+        if control.Kind == "Toggle" and control.Title ~= "Disable 3D Rendering" and control.Title ~= "Auto Rejoin (when kicked)" then
+            toggles += 1
+            expect(control.Desc == nil, "Game feature description restored")
+        end
     end
-    expect(#s.calls[3].ids == 5 and #s.calls[6].ids == 5)
-    expect(s.calls[3].ids[1] ~= s.calls[6].ids[1], "A later drill reused reward IDs")
-    expect(s:find("Farm Status").Desc == "Ore batches collected: 2")
+    expect(toggles == 15)
+    expect(s:find("Decisions") and s:find("Max payback"))
+    expect(#s.warnings == 0, table.concat(s.warnings, "\n"))
 end)
 
-test("Sell Ores respects server regrowth instead of drilling unready tunnels", function()
-    local s = setup({ place = 122572082932179, readyAt = 4 })
-    s:find("Tunnels"):Set("Tunnel3"); s:advance(0)
-    s:click("Autofarm"); s:advance(3.9)
-    expect(#s.calls == 1 and s.calls[1].action == "GetDrillState")
-    s:advance(2)
-    expect(s.calls[2].action == "GetDrillState" and s.calls[2].at >= 4)
-    expect(s.calls[3].action == "DrillTunnel")
-end)
-
-test("Sell Ores stop, unload and rapid restart cancel pending follow-up actions", function()
-    for _, useUnload in ipairs({ false, true }) do
-        local s = setup({ place = 122572082932179 })
-        s:click("Autofarm"); s:advance(1.3)
-        expect(s.calls[2].action == "DrillTunnel")
-        if useUnload then s:click("Unload LUB") else s:click("Autofarm") end
-        s:advance(5)
-        expect(#s.calls == 2, "Stopped worker collected drops or started another tunnel")
-    end
+test("Sell Ores keeps original defaults and completes roll buy pickup sell", function()
     local s = setup({ place = 122572082932179 })
-    s:click("Autofarm"); s:click("Autofarm"); s:click("Autofarm"); s:advance(3)
-    local collected = 0
-    for _, call in ipairs(s.calls) do if call.action == "CollectDroneOres" then collected = collected + 1 end end
-    expect(collected == 1, "Rapid restart left multiple active workers")
+    local core = s.globals.LUBRuntime.sellOres
+    expect(core.CONFIG.auto and core.CONFIG.autoBuyOre and core.CONFIG.autoGear and core.CONFIG.autoRewards)
+    s:advance(8)
+    expect(core.STATE.rolls > 0, "No roll")
+    expect(core.STATE.oresBought > 0, "No ore bought")
+    expect(core.STATE.sells > 0, "No sale")
+    for _, call in ipairs(s.calls) do expect(call.action ~= "BaseCrateAction") end
 end)
 
-test("Sell Ores targets are configurable and invalid targets never reach the server", function()
-    local s = setup({ place = 122572082932179 })
-    s:find("Base"):Set("Base4"); s:find("Floor"):Set("2"); s:find("Tunnels"):Set("2, Tunnel2, 5"); s:advance(0)
-    s:click("Autofarm"); s:advance(5.7)
-    expect(s.calls[1].base == "Base4" and s.calls[1].floor == 2 and s.calls[1].tunnel == "Tunnel2")
-    expect(s.calls[4].tunnel == "Tunnel5", "Duplicate tunnel targets were not removed")
-    s:find("Floor"):Set("0"); s:advance(0)
-    expect(not s:find("Autofarm").Value, "Changing targets must stop the old worker")
-    local count = #s.calls
-    s:click("Autofarm"); s:advance(5)
-    expect(#s.calls == count and not s:find("Autofarm").Value)
-    expect(s:find("Farm Status").Desc:find("positive whole number", 1, true))
+test("manual roll holds character by prompt and retains original settle time", function()
+    local s = setup({ place = 122572082932179, config = manualSellConfig() })
+    s:click("Roll once"); s:advance(0.1)
+    s.services.RunService.Heartbeat:Fire(); s:advance(0)
+    expect(s.hrp.CFrame.Position.X == 10 and s.hrp.CFrame.Position.Y == 5)
+    expect(#s.prompts == 0)
+    s:advance(0.11)
+    expect(#s.prompts == 1 and s.prompts[1].name == "RollPrompt" and s.prompts[1].at >= 0.2)
+    s:advance(0.5)
+    expect(s.globals.LUBRuntime.sellOres.STATE.rolls == 1)
 end)
 
-test("Sell Ores reports missing remotes, rejected bases and malformed reward responses", function()
-    for _, failure in ipairs({ "noSellRemotes", "rejectState", "noRewardIds" }) do
-        local options = { place = 122572082932179, [failure] = true }
-        local s = setup(options)
-        s:click("Autofarm"); s:advance(6)
-        expect(not s:find("Autofarm").Value and #s.warnings == 1, "Failure was not surfaced: " .. failure)
-        for _, call in ipairs(s.calls) do expect(call.action ~= "CollectDroneOres") end
+test("manual crate action picks up before selling and counts actual balance change", function()
+    local s = setup({ place = 122572082932179, config = manualSellConfig() })
+    s:click("Pick up + sell now"); s:advance(3)
+    expect(#s.prompts == 2 and s.prompts[1].name == "PickUpOresPrompt" and s.prompts[2].name == "SellOresPrompt")
+    local st = s.globals.LUBRuntime.sellOres.STATE
+    expect(st.pickups == 1 and st.sells == 1 and st.earned == 100 and st.money == 1100)
+end)
+
+test("unload cancels pending prompts and disconnects character and remote listeners", function()
+    local s = setup({ place = 122572082932179, config = manualSellConfig() })
+    s:click("Pick up + sell now"); s:advance(0.1)
+    s:click("Unload LUB"); s:advance(5)
+    expect(#s.prompts == 0 and s.window.Destroyed)
+    for _, listener in ipairs(s.services.RunService.Heartbeat.listeners) do expect(not listener.connected) end
+    for _, listener in ipairs(s.crateEvent.OnClientEvent.listeners) do expect(not listener.connected) end
+    expect(s.globals._G.__SELLORES_DBG == nil and #s.warnings == 0)
+end)
+
+test("rewards claim available indices and all banked spins despite countdown", function()
+    local s = setup({ place = 122572082932179, config = manualSellConfig(), sellRewards = true })
+    s:click("Claim everything now"); s:advance(4)
+    local counts = {}
+    for _, call in ipairs(s.calls) do
+        counts[call.action] = (counts[call.action] or 0) + 1
+        if call.action == "PlaytimeRewardsClaim" then expect(call.args[1] == 4) end
     end
+    expect(counts.RequestLuckySpin == 2 and counts.CompleteLuckySpin == 2)
+    expect(counts.ClaimDailyReward == 1 and counts.PlaytimeRewardsClaim == 1)
 end)
 
-test("Sell Ores retries collection using the same fresh batch and accepts a single reward ID", function()
-    local s = setup({ place = 122572082932179, collectFailures = 1, singleReward = true })
-    s:click("Autofarm"); s:advance(4)
-    expect(s.calls[3].action == "CollectDroneOres" and s.calls[4].action == "CollectDroneOres")
-    expect(#s.calls[3].ids == 1 and s.calls[3].ids[1] == s.calls[4].ids[1])
-    expect(s:find("Farm Status").Desc == "Ore batches collected: 1")
+test("upgrade guard shares the declared furnace state and buys affordable upgrade", function()
+    local s = setup({ place = 122572082932179, config = manualSellConfig(), sellUpgrade = true })
+    local core = s.globals.LUBRuntime.sellOres
+    s.globals.task.spawn(function() core.buyUpgrades() end)
+    s:advance(1)
+    expect(core.STATE.upgrades == 1 and s.money.Value == "$750")
 end)
 
-test("Sell Ores tolerates a drone winning the drill race and bounds failed collection retries", function()
-    local s = setup({ place = 122572082932179, drillRace = true })
-    s:find("Tunnels"):Set("Tunnel3"); s:advance(0)
-    s:click("Autofarm"); s:advance(7)
-    expect(s:find("Autofarm").Value)
-    expect(s:find("Farm Status").Desc == "Ore batches collected: 1")
-    local rejected = setup({ place = 122572082932179, collectFailures = 10 })
-    rejected:click("Autofarm"); rejected:advance(10)
-    local attempts = 0
-    for _, call in ipairs(rejected.calls) do if call.action == "CollectDroneOres" then attempts = attempts + 1 end end
-    expect(attempts == 3 and not rejected:find("Autofarm").Value)
-    expect(rejected:find("Farm Status").Desc:find("Drops not ready", 1, true))
+test("original ore mutation and furnace throughput decisions are preserved", function()
+    local s = setup({ place = 122572082932179, config = manualSellConfig() })
+    local core = s.globals.LUBRuntime.sellOres
+    core.LOADOUT.count = 1; core.LOADOUT.worstRate = 10
+    expect(not core.oreWanted({ oreName = "Stone Ore", seedCost = 100, rarity = "Common" }))
+    expect(core.oreWanted({ oreName = "Stone Ore", seedCost = 100, rarity = "Common", mutation = "Alien" }))
+    core.INCOME.perSecond = 1000; core.FURNACE.purchased = true
+    expect(core.furnaceWorthUsing())
+    s.furnaceRate.Text = "$500/s"
+    expect(not core.furnaceWorthUsing())
 end)
 
-test("both games retain separate settings and only the current game's module restores", function()
-    local config = { settings = {},
-        ["137233438285284"] = { farming = true, collect_eggs_only = true },
-        ["122572082932179"] = { farming = true, base = "Base5", floor = "2", tunnels = "Tunnel7" },
-        ["999"] = { farming = true },
-    }
+test("WindUI settings persist separately and stale targets and infinity are not serialized", function()
+    local config = manualSellConfig({ base = "Base1" })
+    config["137233438285284"] = { collect_eggs_only = true }
     local s = setup({ place = 122572082932179, config = config })
-    s:advance(3)
-    expect(s.calls[1].base == "Base5" and s.calls[1].floor == 2 and s.calls[1].tunnel == "Tunnel7")
-    expect(s.globals.LUBRuntime.config["137233438285284"].collect_eggs_only == true)
-    expect(s.globals.LUBRuntime.config["999"] == nil)
-    for _, call in ipairs(s.calls) do expect(call.action ~= "Collect Egg") end
+    s:click("Auto Roll")
+    s:find("Max payback"):Set("60 min"); s:find("Cycle wait"):Set(2); s:advance(0)
+    local saved = s.globals.LUBRuntime.config
+    expect(saved["137233438285284"].collect_eggs_only)
+    local sell = saved["122572082932179"]
+    expect(sell.autoRoll and sell.maxPayback == 3600 and sell.cycleWait == 2)
+    expect(sell.base == nil and sell.maxUpgradePayback == nil)
+    expect(s.globals.LUBRuntime.sellOres.CONFIG.maxUpgradePayback == math.huge)
 end)
 
 print(string.format("%d behavioral tests passed", passed))

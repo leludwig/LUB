@@ -29,16 +29,22 @@ Die lokale Entfernung entspricht dem Original und ist keine Bestätigung des Spi
 
 ## Sell Ores · 122572082932179
 
-Unter **Game → Auto Farm → Autofarm** wird der in den bereitgestellten Logs aufgezeichnete Ablauf wiederholt:
+Version 2.4 übernimmt das vom Nutzer bereitgestellte **Sell-Ores-Skript von seltonmt** direkt in `src/games/122572082932179.lua`. Die Spielabläufe, Preise, Kaufentscheidungen und Wartezeiten stammen aus dieser Vorlage. Ihre separate Oberfläche wurde durch Steuerelemente im LUB-Game-Tab ersetzt. Eine externe `ui-template.lua` wird nicht benötigt.
 
-1. `BaseBuildTunnelAction:InvokeServer(base, floor, tunnel, "GetDrillState")` fragt die Bereitschaft ab.
-2. Bei `result.ready == true` folgt nach einer Sekunde `DrillTunnel` mit denselben Zielargumenten.
-3. Nach 1,5 Sekunden werden die **frisch vom Server zurückgegebenen** `PendingRewardIds` mit `BaseCrateAction:InvokeServer(base, "CollectDroneOres", ids)` eingesammelt. Ein einzelnes `PendingRewardId` wird ebenfalls unterstützt.
-4. `remainingSeconds` und `GrowTime` bestimmen, wann ein Tunnel erneut abgefragt wird. Abgelehnte Sammelanfragen werden höchstens dreimal mit denselben IDs versucht; Fehler erscheinen unter **Farm Status**.
+Die eigene Basis wird anhand von `OwnerUserId` automatisch erkannt. Unter **Game → Auto Farm → Autofarm** läuft der vollständige Ablauf: rollen, geeignete Erze kaufen und ausrüsten, Kisten abholen und verkaufen beziehungsweise durch den Ofen verarbeiten sowie Geld nach den Prioritäten der Vorlage ausgeben.
 
-**Farm Targets** lässt sich aufklappen. Die Vorgaben stammen aus den Logs: **Base1**, **Floor 1**, **Tunnel3, Tunnel4**. Wenn deine aktuelle Basis oder deine Tunnel anders heißen, trage dort die passenden Werte ein. Weitere eigene Tunnel lassen sich durch Kommas getrennt ergänzen. Die Basis wird nicht automatisch erkannt. Änderungen an den Zielen stoppen den laufenden Durchlauf; anschließend Autofarm erneut einschalten.
+Die aufklappbaren Bereiche enthalten alle bisherigen Bedienelemente:
 
-Das Modul automatisiert Bohren und Erze einsammeln. Verkauf, Upgrades, Käufe und Rollen sind nicht enthalten, da dazu keine ausgehenden Aufrufe in den bereitgestellten Logs vorliegen. Aufgezeichnete Reward-IDs und eingehende Ereignisse werden nicht wieder abgespielt. Die Rohlogs werden nicht veröffentlicht.
+- **Ore:** Auto Roll, Buy rolled ore, Max payback, Equip best ores und Level up ores.
+- **Crates:** Pick up crates, Sell ores und Furnace (+50%).
+- **Rewards:** Claim rewards sowie Claim everything now für verfügbare Tages-, Spielzeit-, Offline- und Spin-Belohnungen.
+- **Manual:** Roll once und Pick up + sell now.
+- **Spending:** Drill- und Roller-Upgrades, Tunnel, Stockwerke, Boost-Podeste und Growth Gems.
+- **Status / Log:** Einkommen, Stockwerke, Engpässe, letzte Aktionen, Geldreserven und Entscheidungen. Mit Dateizugriff wird das Entscheidungsprotokoll unter `LUB/sellores-log.txt` gespeichert.
+
+**Die Voreinstellungen entsprechen der Vorlage:** Autofarm, Buy rolled ore, Buy growth gems und Claim rewards sind beim ersten Start eingeschaltet. Der Hauptschalter aktiviert die vollständige Routine; einzeln eingeschaltete Funktionen bleiben auch bei ausgeschaltetem Hauptschalter aktiv. Zum vollständigen Beenden **Unload LUB** verwenden. Bereits gespeicherte Schalterstellungen werden wiederhergestellt.
+
+Für die Prompt-Aktionen benötigt die Ausführungsumgebung `fireproximityprompt`; für die übernommenen SurfaceGui-Helfer außerdem `getconnections`. Die Figur wird wie in der Vorlage kurz an der jeweiligen Interaktion gehalten. Unload beendet auch wartende Folgeaktionen, löst die Verbindungen und stellt die von dieser Instanz veränderten Kaufdialog-Hooks wieder her. Ein vorgezogener lokaler `FURNACE`-Verweis behebt einen Variablenfehler der Vorlage in der Upgrade-Reserveberechnung.
 
 ## Games List
 
@@ -56,7 +62,7 @@ Bei einem unbekannten Spiel zeigt der Game-Tab **Game not supported** mit der ak
 
 WindUI lässt sich mit **Insert (Einfg)** aus- und einblenden. Die kleine **LUB**-Schaltfläche öffnet das Fenster ebenfalls.
 
-Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Die beiden unterstützten Spiele haben getrennte Einstellungen; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.3; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
+Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Die beiden unterstützten Spiele haben getrennte Einstellungen; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.4; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
 
 Optional kann die Startdatei lokal als `LUB/LUB.lua` im Workspace der Ausführungsumgebung abgelegt und so ausgeführt werden:
 
@@ -71,7 +77,7 @@ Automatisches Neuladen nach einem Spielwechsel wird eingerichtet, wenn diese lok
 ```text
 src/
   games/
-    122572082932179.lua  # Sell Ores: Bohren und Erze einsammeln
+    122572082932179.lua  # Sell Ores: seltonmt-Spielabläufe mit WindUI
     137233438285284.lua  # Alle Chicken-Farm-Funktionen inklusive Eiermodus
   gameslist.json        # Unterstützte Spiele und ihre Place-IDs
   init.lua              # Start, Konfiguration und Aufräumen
@@ -88,10 +94,12 @@ python tools/test.py --luau-dir .tools/luau
 
 Der Build braucht nur Python 3. Für die Tests werden `luau` und `luau-compile` aus den [offiziellen Luau-Releases](https://github.com/luau-lang/luau/releases) benötigt. Der Build prüft eindeutige Place-IDs und die Übereinstimmung zwischen Games List und den enthaltenen Spielskripten.
 
-Geprüft werden fünf Luau-Dateien einschließlich Startdatei und 26 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Chicken-Farm-Ablauf, Sell-Ores-Aufrufe mit frischen IDs und Serverwartezeiten, Fehlerantworten, begrenzte Wiederholungen, konfigurierbare Ziele, Stoppen und Entladen sowie Spielbeitritt, Insert-Taste, getrennte Einstellungen, unbekannte Spiele und Versionswechsel. Die offizielle WindUI-Release-Datei wurde separat kompiliert. Die Darstellung im Roblox-Client und die Annahme der Anfragen auf aktuellen Spielservern wurden nicht live verifiziert.
+Geprüft werden fünf Luau-Dateien einschließlich Startdatei und 27 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Chicken-Farm-Ablauf, automatische Basiswahl, Sell-Ores-Prompt-Reihenfolge und Wartezeiten, Roll-Käufe, Verkauf, verfügbare Belohnungen, Upgrade-Käufe, Ofen-Durchsatz und Erzentscheidungen, Entladen sowie Spielbeitritt, Insert-Taste, getrennte Einstellungen, unbekannte Spiele und Versionswechsel. Die Darstellung im Roblox-Client und die Annahme der Aktionen auf aktuellen Spielservern wurden nicht live verifiziert.
 
 ## Herkunft
 
 Das Chicken-Farm-Skript basiert auf [BrainrotPolice](https://github.com/IcantAffordSynapse/BrainrotPolice), Commit `1f12e4fc599b5c4f6939c813a4e6eb218555c959`, von esore/vaehz. Apache-2.0-Lizenz und Herkunftshinweise sind in `LICENSE` und `NOTICE` erhalten. Die ursprünglichen weiteren Spielskripte sind in LUB 2.0 entfernt.
 
 Die Oberfläche verwendet [WindUI von Footages](https://github.com/Footagesus/WindUI), Version 1.6.66, unter der MIT-Lizenz. LUB lädt die unveränderte offizielle Bibliothek beim Start.
+
+Das Sell-Ores-Modul stammt aus dem vom Nutzer bereitgestellten Skript von **seltonmt**. Die Autorenzeile und ursprünglichen Kommentare bleiben erhalten; Messangaben in diesen Kommentaren stammen aus der Vorlage und sind keine Live-Verifikation durch LUB.

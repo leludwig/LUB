@@ -16,6 +16,11 @@ Changes in LUB 2.2.1: restored left-aligned button text and inset only the icons
 Changes in LUB 2.3: added Sell Ores (122572082932179) as a separate module using
 the user-provided remote-call logs, configurable farm targets, per-game settings,
 two game-list entries and a generic unsupported-game message.
+Changes in LUB 2.4: replaced the Sell Ores log-based implementation with the
+user-supplied Sell Ores script by seltonmt, retaining its gameplay routines,
+defaults and author credit. Replaced its separate UI with WindUI controls in
+LUB, added per-game persistence and unload cleanup, and forward-declared the
+shared FURNACE state to fix the original upgrade guard's local scope.
 Original contributors: esore/vaehz, __ven0x__, wirlypirly12.
 The original Apache License 2.0 is retained in LICENSE.
 
