@@ -142,7 +142,7 @@ local function setup(options)
             end,
         },
         RunService = { Set3dRenderingEnabled = function(_, enabled) state.rendering = enabled end },
-        TeleportService = { Teleport = function(_, id) state.teleport = id end },
+        TeleportService = { Teleport = function(_, id, target) state.teleport = id; state.teleportPlayer = target end },
     }
     state.services = services
     globals.game = { PlaceId = options.place or 137233438285284,
@@ -246,6 +246,7 @@ local function setup(options)
             function window:OnDestroy(fn) self.destroyCallback = fn end
             function window:Open() self.Closed = false end
             function window:Close() self.Closed = true end
+            function window:Toggle() self.Closed = not self.Closed end
             function window:Destroy()
                 self.Destroyed = true
                 if self.destroyCallback then globals.task.spawn(self.destroyCallback) end
@@ -259,7 +260,7 @@ local function setup(options)
         return "return getgenv().TEST_WINDUI"
     end
     if options.legacy then
-        globals.LUBRuntime = { alive = true, version = "2.0.0", cleanup = function() state.legacyStopped = true end }
+        globals.LUBRuntime = { alive = true, version = "2.1.0", cleanup = function() state.legacyStopped = true end }
     end
     globals.LUBSources = SOURCES
     local initialized, initError = pcall(function() state:load("src/init.lua") end)
@@ -315,11 +316,33 @@ test("WindUI has exactly three tabs and one game entry", function()
     for _, control in ipairs(s.window.Tabs[2].Elements) do if control.Kind == "Button" then entries = entries + 1 end end
     expect(entries == 1 and s:find("Chicken Farm").Desc:find("137233438285284", 1, true))
     s:click("Chicken Farm")
-    expect(s.window.Selected == 1 and not s.teleport, "Current game should open the Game tab")
+    expect(s.window.Selected == 2 and s.teleport == 137233438285284, "Game button must join even from the same place")
+    expect(s.teleportPlayer == s.services.Players.LocalPlayer, "Join must target the local player")
     local section = s:find("Auto Farm")
     expect(section.Parent == s.window.Tabs[1])
     expect(section.Elements[1].Title == "Autofarm" and section.Elements[2].Title == "Collect Eggs Only")
     expect(#s.warnings == 0, table.concat(s.warnings, "\n"))
+end)
+
+test("Insert toggles the menu, ignores processed input and stops after unload", function()
+    local s = setup()
+    local input = s.services.UserInputService.InputBegan
+    local key = { KeyCode = s.globals.Enum.KeyCode.Insert }
+    expect(s.window.Config.ToggleKey == nil, "WindUI must not add a second keyboard shortcut")
+    input:Fire(key, false); s:advance(0)
+    expect(s.window.Closed, "Insert did not hide the menu")
+    input:Fire(key, true); s:advance(0)
+    expect(s.window.Closed, "Processed input toggled the menu")
+    input:Fire({ KeyCode = s.globals.Enum.KeyCode.A }, false); s:advance(0)
+    expect(s.window.Closed, "Unrelated key toggled the menu")
+    input:Fire({ KeyCode = s.globals.Enum.KeyCode.RightShift }, false); s:advance(0)
+    expect(s.window.Closed, "Right Shift must not toggle the menu")
+    input:Fire(key, false); s:advance(0)
+    expect(not s.window.Closed, "Insert did not reopen the menu")
+    input:Fire(key, false)
+    s.globals.LUBRuntime.cleanup(); s:advance(0)
+    input:Fire(key, false); s:advance(0)
+    expect(s.window.Destroyed and not s.window.Closed, "Queued or disconnected input changed an unloaded window")
 end)
 
 test("original existing-egg sequence fires, waits, then destroys each egg", function()
@@ -477,7 +500,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.1.0")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.2.0")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)

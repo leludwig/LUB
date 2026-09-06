@@ -1,4 +1,4 @@
--- LUB 2.1: WindUI 1.6.66, with Game, Games List and Settings only.
+-- LUB 2.2: WindUI 1.6.66, with Game, Games List and Settings only.
 local env = getgenv()
 local runtime = env.LUBRuntime
 local source = game:HttpGet("https://github.com/Footagesus/WindUI/releases/download/1.6.66/main.lua")
@@ -16,12 +16,17 @@ local Window = WindUI:CreateWindow({
     NewElements = true,
     Transparent = false,
     Acrylic = false,
-    ToggleKey = Enum.KeyCode.RightShift,
     OpenButton = { Title = "LUB", Enabled = true, Draggable = true, OnlyMobile = false },
 })
 assert(Window, "LUB: WindUI window could not be created")
 runtime.window = Window
 Window:OnDestroy(function() runtime.cleanup(true) end)
+-- Insert is the only keyboard shortcut; disconnect it when LUB is unloaded.
+runtime.track(game:GetService("UserInputService").InputBegan:Connect(function(input, isProcessed)
+    if runtime.alive and not isProcessed and input.KeyCode == Enum.KeyCode.Insert then
+        Window:Toggle()
+    end
+end))
 
 local GameTab = Window:Tab({ Title = "Game", Icon = "gamepad-2" })
 local GamesTab = Window:Tab({ Title = "Games List", Icon = "list" })
@@ -37,13 +42,11 @@ for _, entry in ipairs(gameList) do
         Title = entry.game,
         Desc = "Place ID: " .. tostring(entry.id),
         Icon = "play",
+        Justify = "Left",
+        IconAlign = "Right",
         Callback = function()
             if not runtime.alive then return end
-            if tostring(game.PlaceId) == tostring(entry.id) then
-                Window:SelectTab(1)
-            else
-                game:GetService("TeleportService"):Teleport(tonumber(entry.id), game:GetService("Players").LocalPlayer)
-            end
+            game:GetService("TeleportService"):Teleport(tonumber(entry.id), game:GetService("Players").LocalPlayer)
         end,
     })
 end
@@ -75,12 +78,9 @@ SettingsTab:Toggle({
 })
 -- WindUI intentionally does not invoke toggle callbacks for their initial value.
 setRendering(settings.disable_3d_rendering)
-SettingsTab:Paragraph({
-    Title = "LUB 2.1",
-    Desc = "WindUI by Footages. Based on BrainrotPolice by esore / vaehz.\nRight Shift: show / hide. Settings save automatically when file access is available.",
-})
 SettingsTab:Button({
-    Title = "Unload LUB", Desc = "Stop farming and close LUB.", Icon = "power",
+    Title = "Unload LUB", Desc = "Close LUB and stop farming.", Icon = "power",
+    Justify = "Left", IconAlign = "Right",
     Callback = function() runtime.cleanup() end,
 })
 

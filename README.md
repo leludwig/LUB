@@ -5,7 +5,7 @@ LUB für **Chicken Farm**, Place-ID **137233438285284**, mit der Oberfläche von
 ## Starten
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/leludwig/LUB/main/LUB.lua?v=2.1"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/leludwig/LUB/main/LUB.lua?v=2.2"))()
 ```
 
 LUB lädt WindUI **1.6.66** aus dem [offiziellen Release](https://github.com/Footagesus/WindUI/releases/tag/1.6.66). Die Oberfläche hat genau drei Tabs: **Game**, **Games List** und **Settings**.
@@ -29,7 +29,7 @@ Die lokale Entfernung entspricht dem Original und ist keine Bestätigung des Spi
 
 Die Liste enthält ausschließlich **Chicken Farm / 137233438285284**. Im Ordner `src/games` liegt ebenfalls nur dieses Spielskript. Die zugehörige Listendatei ist `src/gameslist.json`.
 
-Ein Klick auf Chicken Farm öffnet im laufenden Spiel den Game-Tab; aus einem anderen Spiel startet er den Spielwechsel.
+Ein Klick auf Chicken Farm oder das Play-Symbol tritt dem Spiel bei, auch wenn du dich bereits in diesem Spiel befindest. Das Symbol steht direkt neben dem Textbereich.
 
 ## Settings
 
@@ -37,9 +37,9 @@ Ein Klick auf Chicken Farm öffnet im laufenden Spiel den Game-Tab; aus einem an
 - **Auto Rejoin (when kicked):** versucht nach einem Disconnect/Kick erneut zu verbinden.
 - **Unload LUB:** stoppt das Farmen und schließt LUB.
 
-WindUI lässt sich mit **Right Shift** aus- und einblenden. Die kleine **LUB**-Schaltfläche öffnet das Fenster ebenfalls.
+WindUI lässt sich mit **Insert (Einfg)** aus- und einblenden. Die kleine **LUB**-Schaltfläche öffnet das Fenster ebenfalls.
 
-Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Alte Einträge für andere Spiele werden beim Laden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.1; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
+Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Alte Einträge für andere Spiele werden beim Laden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.2; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
 
 Optional kann die Startdatei lokal als `LUB/LUB.lua` im Workspace der Ausführungsumgebung abgelegt und so ausgeführt werden:
 
@@ -70,7 +70,7 @@ python tools/test.py --luau-dir .tools/luau
 
 Der Build braucht nur Python 3. Für die Tests werden `luau` und `luau-compile` aus den [offiziellen Luau-Releases](https://github.com/luau-lang/luau/releases) benötigt. Der Build prüft, dass nur das vorgesehene Spielskript und der einzelne Listeneintrag enthalten sind.
 
-Geprüft werden vier Luau-Dateien einschließlich Startdatei und 17 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Sammelaufrufe, Wartezeiten und lokale Entfernung wie im Original, Eier während des Startdurchlaufs, Stoppen wartender Ereignisse, Fehleranzeige, Moduswechsel, ursprüngliche Reihenfolge der vollständigen Farm-Aktionen sowie Tabs, Einstellungen und Versionswechsel. Die offizielle WindUI-Release-Datei wurde separat kompiliert. Die Darstellung im Roblox-Client und die Annahme von Sammelanfragen auf einem aktuellen Spielserver wurden nicht live verifiziert.
+Geprüft werden vier Luau-Dateien einschließlich Startdatei und 18 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Sammelaufrufe, Wartezeiten und lokale Entfernung wie im Original, Eier während des Startdurchlaufs, Stoppen wartender Ereignisse, Fehleranzeige, Moduswechsel, ursprüngliche Reihenfolge der vollständigen Farm-Aktionen sowie Spielbeitritt, Insert-Taste, Tabs, Einstellungen und Versionswechsel. Die offizielle WindUI-Release-Datei wurde separat kompiliert. Die Darstellung im Roblox-Client und die Annahme von Sammelanfragen auf einem aktuellen Spielserver wurden nicht live verifiziert.
 
 ## Herkunft
 

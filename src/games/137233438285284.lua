@@ -147,7 +147,6 @@ return function(tab, data)
 
     farmToggle = section:Toggle({
         Title = "Autofarm",
-        Desc = "Full farm: collect, deposit, cash, upgrades, buy and merge. Buy your first chicken first.",
         Value = false,
         Callback = function(value)
             if value then setMode("farm") elseif mode == "farm" then setMode("off") end
@@ -155,7 +154,6 @@ return function(tab, data)
     })
     eggToggle = section:Toggle({
         Title = "Collect Eggs Only",
-        Desc = "Collect existing and new eggs. No depositing, cash, upgrades, purchases or merging.",
         Value = false,
         Callback = function(value)
             if value then setMode("eggs") elseif mode == "eggs" then setMode("off") end
