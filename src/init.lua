@@ -2,7 +2,7 @@
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 local env = getgenv()
-local VERSION = "2.2.1"
+local VERSION = "2.3.0"
 if env.LUBRuntime and env.LUBRuntime.alive then
     if env.LUBRuntime.version == VERSION then
         env.LUBRuntime.show()
@@ -65,8 +65,14 @@ local ok, reason = pcall(function()
 end)
 if not ok then warn("LUB: settings could not be read: " .. tostring(reason)) end
 if type(config.settings) ~= "table" then config.settings = {} end
--- Keep only the supported game when migrating an older LUB configuration.
-config = { settings = config.settings, ["137233438285284"] = config["137233438285284"] }
+-- The game list is the registry for loading modules and retaining game settings.
+runtime.games = http:JSONDecode(env.LUBRead("src/gameslist.json"))
+local supportedConfig = { settings = config.settings }
+for _, entry in ipairs(runtime.games) do
+    if type(config[entry.id]) == "table" then supportedConfig[entry.id] = config[entry.id] end
+    if entry.id == tostring(game.PlaceId) then runtime.gameEntry = entry end
+end
+config = supportedConfig
 config.settings.auto_rejoin_on_kick = config.settings.auto_rejoin_on_kick == true
 config.settings.disable_3d_rendering = config.settings.disable_3d_rendering == true
 runtime.config = config

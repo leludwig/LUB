@@ -1,4 +1,4 @@
--- LUB 2.2.1: WindUI 1.6.66, with Game, Games List and Settings only.
+-- LUB 2.3: WindUI 1.6.66, with Game, Games List and Settings only.
 local env = getgenv()
 local runtime = env.LUBRuntime
 local source = game:HttpGet("https://github.com/Footagesus/WindUI/releases/download/1.6.66/main.lua")
@@ -7,7 +7,7 @@ assert(library, "LUB: WindUI could not compile: " .. tostring(compileError))
 local WindUI = library()
 local Window = WindUI:CreateWindow({
     Title = "LUB",
-    Author = "Chicken Farm",
+    Author = runtime.gameEntry and runtime.gameEntry.game or "Game Tools",
     Folder = "LUB/WindUI",
     Icon = "egg",
     Theme = "Dark",
@@ -43,11 +43,10 @@ local function insetButtonIcon(button)
     textFrame.Size = UDim2.new(size.X.Scale, size.X.Offset - inset, size.Y.Scale, size.Y.Offset)
 end
 
-local gameList = game:GetService("HttpService"):JSONDecode(env.LUBRead("src/gameslist.json"))
-local supported
-GamesTab:Section({ Title = "Supported Game" })
+local gameList = runtime.games
+local supported = runtime.gameEntry
+GamesTab:Section({ Title = "Supported Games" })
 for _, entry in ipairs(gameList) do
-    if tostring(game.PlaceId) == tostring(entry.id) then supported = entry end
     local joinButton = GamesTab:Button({
         Title = entry.game,
         Desc = "Place ID: " .. tostring(entry.id),
@@ -105,7 +104,7 @@ if supported then
         warn("LUB: " .. tostring(err))
     end
 else
-    GameTab:Paragraph({ Title = "Chicken Farm only", Desc = "LUB supports place 137233438285284. Open it through Games List." })
+    GameTab:Paragraph({ Title = "Game not supported", Desc = "No LUB script is available for this game (Place ID: " .. tostring(game.PlaceId) .. ")." })
     GameTab:Button({ Title = "Open Games List", Icon = "list", Callback = function() Window:SelectTab(2) end })
 end
 return Window

@@ -1,6 +1,6 @@
 # LUB
 
-LUB für **Chicken Farm**, Place-ID **137233438285284**, mit der Oberfläche von [WindUI](https://github.com/Footagesus/WindUI).
+LUB für **Chicken Farm** und **Sell Ores**, mit der Oberfläche von [WindUI](https://github.com/Footagesus/WindUI).
 
 ## Starten
 
@@ -14,7 +14,7 @@ LUB lädt WindUI **1.6.66** aus dem [offiziellen Release](https://github.com/Foo
 
 Die Ausführungsumgebung muss Roblox, `getgenv`, `loadstring` und `game:HttpGet` unterstützen. Ein normaler Studio-LocalScript stellt diese Ausführungsfunktionen nicht bereit.
 
-## Game
+## Chicken Farm · 137233438285284
 
 Im Bereich **Auto Farm** befinden sich diese beiden Schalter direkt untereinander:
 
@@ -27,11 +27,26 @@ Version 2.1 übernimmt den Sammelablauf aus dem [Originalskript](https://raw.git
 
 Die lokale Entfernung entspricht dem Original und ist keine Bestätigung des Spielservers. Die Annahme der Sammelanfragen kann hier nicht live geprüft werden. Bei einem Lua-Fehler stoppt der Schalter und `Collection Status` zeigt den Fehler an; nach vollständigem Laden des Spiels kann der Modus erneut eingeschaltet werden.
 
+## Sell Ores · 122572082932179
+
+Unter **Game → Auto Farm → Autofarm** wird der in den bereitgestellten Logs aufgezeichnete Ablauf wiederholt:
+
+1. `BaseBuildTunnelAction:InvokeServer(base, floor, tunnel, "GetDrillState")` fragt die Bereitschaft ab.
+2. Bei `result.ready == true` folgt nach einer Sekunde `DrillTunnel` mit denselben Zielargumenten.
+3. Nach 1,5 Sekunden werden die **frisch vom Server zurückgegebenen** `PendingRewardIds` mit `BaseCrateAction:InvokeServer(base, "CollectDroneOres", ids)` eingesammelt. Ein einzelnes `PendingRewardId` wird ebenfalls unterstützt.
+4. `remainingSeconds` und `GrowTime` bestimmen, wann ein Tunnel erneut abgefragt wird. Abgelehnte Sammelanfragen werden höchstens dreimal mit denselben IDs versucht; Fehler erscheinen unter **Farm Status**.
+
+**Farm Targets** lässt sich aufklappen. Die Vorgaben stammen aus den Logs: **Base1**, **Floor 1**, **Tunnel3, Tunnel4**. Wenn deine aktuelle Basis oder deine Tunnel anders heißen, trage dort die passenden Werte ein. Weitere eigene Tunnel lassen sich durch Kommas getrennt ergänzen. Die Basis wird nicht automatisch erkannt. Änderungen an den Zielen stoppen den laufenden Durchlauf; anschließend Autofarm erneut einschalten.
+
+Das Modul automatisiert Bohren und Erze einsammeln. Verkauf, Upgrades, Käufe und Rollen sind nicht enthalten, da dazu keine ausgehenden Aufrufe in den bereitgestellten Logs vorliegen. Aufgezeichnete Reward-IDs und eingehende Ereignisse werden nicht wieder abgespielt. Die Rohlogs werden nicht veröffentlicht.
+
 ## Games List
 
-Die Liste enthält ausschließlich **Chicken Farm / 137233438285284**. Im Ordner `src/games` liegt ebenfalls nur dieses Spielskript. Die zugehörige Listendatei ist `src/gameslist.json`.
+Die Liste enthält **Chicken Farm / 137233438285284** und **Sell Ores / 122572082932179**. Jedes Spiel hat sein eigenes Skript im Ordner `src/games`. Die zugehörige Listendatei ist `src/gameslist.json`; sie bestimmt auch, welches Modul geladen wird und welche Spieleinstellungen erhalten bleiben.
 
-Ein Klick auf Chicken Farm oder das Play-Symbol tritt dem Spiel bei, auch wenn du dich bereits in diesem Spiel befindest. Der Text steht linksbündig; das Play-Symbol ist um 18 Pixel vom bisherigen rechten Rand eingerückt. Dieselbe Ausrichtung gilt für Unload LUB.
+Ein Klick auf einen Spieleintrag oder dessen Play-Symbol tritt dem Spiel bei, auch wenn du dich bereits darin befindest. Der Text steht linksbündig; das Play-Symbol ist um 18 Pixel vom bisherigen rechten Rand eingerückt. Dieselbe Ausrichtung gilt für Unload LUB.
+
+Bei einem unbekannten Spiel zeigt der Game-Tab **Game not supported** mit der aktuellen Place-ID und dem Hinweis, dass dafür kein LUB-Skript verfügbar ist. Games List und Settings bleiben erreichbar.
 
 ## Settings
 
@@ -41,7 +56,7 @@ Ein Klick auf Chicken Farm oder das Play-Symbol tritt dem Spiel bei, auch wenn d
 
 WindUI lässt sich mit **Insert (Einfg)** aus- und einblenden. Die kleine **LUB**-Schaltfläche öffnet das Fenster ebenfalls.
 
-Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Alte Einträge für andere Spiele werden beim Laden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.2.1; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
+Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Die beiden unterstützten Spiele haben getrennte Einstellungen; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.3; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
 
 Optional kann die Startdatei lokal als `LUB/LUB.lua` im Workspace der Ausführungsumgebung abgelegt und so ausgeführt werden:
 
@@ -56,8 +71,9 @@ Automatisches Neuladen nach einem Spielwechsel wird eingerichtet, wenn diese lok
 ```text
 src/
   games/
+    122572082932179.lua  # Sell Ores: Bohren und Erze einsammeln
     137233438285284.lua  # Alle Chicken-Farm-Funktionen inklusive Eiermodus
-  gameslist.json        # Genau ein Spiel
+  gameslist.json        # Unterstützte Spiele und ihre Place-IDs
   init.lua              # Start, Konfiguration und Aufräumen
   ui.lua                # WindUI-Fenster mit drei Tabs
 LUB.lua                 # Generierte Startdatei
@@ -70,9 +86,9 @@ python tools/build.py
 python tools/test.py --luau-dir .tools/luau
 ```
 
-Der Build braucht nur Python 3. Für die Tests werden `luau` und `luau-compile` aus den [offiziellen Luau-Releases](https://github.com/luau-lang/luau/releases) benötigt. Der Build prüft, dass nur das vorgesehene Spielskript und der einzelne Listeneintrag enthalten sind.
+Der Build braucht nur Python 3. Für die Tests werden `luau` und `luau-compile` aus den [offiziellen Luau-Releases](https://github.com/luau-lang/luau/releases) benötigt. Der Build prüft eindeutige Place-IDs und die Übereinstimmung zwischen Games List und den enthaltenen Spielskripten.
 
-Geprüft werden vier Luau-Dateien einschließlich Startdatei und 18 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Sammelaufrufe, Wartezeiten und lokale Entfernung wie im Original, Eier während des Startdurchlaufs, Stoppen wartender Ereignisse, Fehleranzeige, Moduswechsel, ursprüngliche Reihenfolge der vollständigen Farm-Aktionen sowie Spielbeitritt, Insert-Taste, Tabs, Einstellungen und Versionswechsel. Die offizielle WindUI-Release-Datei wurde separat kompiliert. Die Darstellung im Roblox-Client und die Annahme von Sammelanfragen auf einem aktuellen Spielserver wurden nicht live verifiziert.
+Geprüft werden fünf Luau-Dateien einschließlich Startdatei und 26 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Chicken-Farm-Ablauf, Sell-Ores-Aufrufe mit frischen IDs und Serverwartezeiten, Fehlerantworten, begrenzte Wiederholungen, konfigurierbare Ziele, Stoppen und Entladen sowie Spielbeitritt, Insert-Taste, getrennte Einstellungen, unbekannte Spiele und Versionswechsel. Die offizielle WindUI-Release-Datei wurde separat kompiliert. Die Darstellung im Roblox-Client und die Annahme der Anfragen auf aktuellen Spielservern wurden nicht live verifiziert.
 
 ## Herkunft
 
