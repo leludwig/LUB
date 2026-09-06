@@ -2,13 +2,18 @@
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 local env = getgenv()
+local VERSION = "2.0.0"
 if env.LUBRuntime and env.LUBRuntime.alive then
-    env.LUBRuntime.show()
-    return
+    if env.LUBRuntime.version == VERSION then
+        env.LUBRuntime.show()
+        return
+    end
+    -- Replace the old interface and stop its farm workers when upgrading in place.
+    env.LUBRuntime.cleanup()
 end
 
 local http = game:GetService("HttpService")
-local runtime = { alive = true, cleanups = {}, cache = {} }
+local runtime = { alive = true, version = VERSION, cleanups = {}, cache = {} }
 env.LUBRuntime = runtime
 env.LUBRoot = env.LUBRoot or "LUB"
 env.LUBConfigPath = env.LUBRoot .. "/Config.json"
@@ -18,17 +23,16 @@ function runtime.track(connection)
     return connection
 end
 
-function runtime.cleanup()
+function runtime.cleanup(fromWindow)
     if not runtime.alive then return end
     runtime.alive = false
     for _, cleanup in ipairs(runtime.cleanups) do pcall(cleanup) end
     pcall(function() game:GetService("RunService"):Set3dRenderingEnabled(true) end)
-    if runtime.ui then runtime.ui:Destroy() end
+    if runtime.window and not fromWindow then runtime.window:Destroy() end
 end
 
 function runtime.show()
-    if runtime.main then runtime.main.Visible = true end
-    if runtime.toggle then runtime.toggle.Visible = false end
+    if runtime.window then runtime.window:Open() end
 end
 
 function env.LUBRead(path)
@@ -47,8 +51,6 @@ function env.LUBRequire(path)
     return result
 end
 
-function env.import(id) return game:GetObjects(id)[1] end
-
 local canSave = isfolder and makefolder and isfile and readfile and writefile
 local config = { settings = {} }
 local ok, reason = pcall(function()
@@ -63,6 +65,8 @@ local ok, reason = pcall(function()
 end)
 if not ok then warn("LUB: settings could not be read: " .. tostring(reason)) end
 if type(config.settings) ~= "table" then config.settings = {} end
+-- Keep only the supported game when migrating an older LUB configuration.
+config = { settings = config.settings, ["137233438285284"] = config["137233438285284"] }
 config.settings.auto_rejoin_on_kick = config.settings.auto_rejoin_on_kick == true
 config.settings.disable_3d_rendering = config.settings.disable_3d_rendering == true
 runtime.config = config

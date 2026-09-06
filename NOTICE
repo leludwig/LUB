@@ -3,7 +3,13 @@ Open sourced + free, you can find the official repo at https://github.com/IcantA
 
 LUB is a modified version of BrainrotPolice, based on upstream commit
 1f12e4fc599b5c4f6939c813a4e6eb218555c959 (retrieved 2026-09-06).
-Changes: LUB branding, a code-built three-tab interface, bundled/local loading,
-separate configuration, and an egg-only collector for Chicken Farm.
+Changes in LUB 2.0: WindUI interface with three tabs, bundled/local loading,
+separate configuration, and egg-only collection directly in the Chicken Farm
+script. Only game 137233438285284 and its list entry are included.
 Original contributors: esore/vaehz, __ven0x__, wirlypirly12.
 The original Apache License 2.0 is retained in LICENSE.
+
+UI dependency: WindUI 1.6.66 by Footages (Copyright 2026), MIT License.
+LUB loads the unmodified official release at runtime:
+https://github.com/Footagesus/WindUI/releases/tag/1.6.66
+License: https://github.com/Footagesus/WindUI/blob/1.6.66/LICENSE

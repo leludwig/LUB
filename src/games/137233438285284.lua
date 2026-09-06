@@ -1,9 +1,7 @@
--- Chicken Farm. Modified for LUB: separate, mutually exclusive egg-only mode.
-return function(section, data)
+-- Chicken Farm / 137233438285284. All farm logic and its WindUI controls live here.
+return function(tab, data)
     local env = getgenv()
     local runtime = env.LUBRuntime
-    local elements = env.LUBRequire("src/elements.lua")
-    local Collector = env.LUBRequire("src/modules/egg_collector.lua")
     local player = game:GetService("Players").LocalPlayer
     local storage = game:GetService("ReplicatedStorage")
     local place = tostring(game.PlaceId)
@@ -20,18 +18,49 @@ return function(section, data)
         return remotes and remotes:FindFirstChild(name)
     end
 
-    elements:Label("Auto Farm", section)
-    elements:Label("Buy your first chicken before enabling the full Autofarm.", section)
-    local status
-    local collector = Collector.new({
-        getEggs = function() return workspace:FindFirstChild("Eggs") end,
-        getRemote = function() return remote("__remoteevent") end,
-        isAlive = function() return runtime.alive end,
-        status = function(text) if status then status.Text = text end end,
-    })
-
+    local section = tab:Section({ Title = "Auto Farm", Icon = "egg", Opened = true })
+    local status, lastStatus
+    local function setStatus(text)
+        if status and runtime.alive and lastStatus ~= text then
+            lastStatus = text
+            status:SetDesc(text)
+        end
+    end
     local mode, generation = "off", 0
     local farmToggle, eggToggle
+
+    -- Shared egg scan. The eggs-only mode never starts the full-farm loop below.
+    local function collectEggs(token)
+        local seen = setmetatable({}, { __mode = "k" })
+        local count = 0
+        local function active() return runtime.alive and mode ~= "off" and generation == token end
+        while active() do
+            local eggs, event = workspace:FindFirstChild("Eggs"), remote("__remoteevent")
+            local failed = false
+            if eggs and event then
+                for _, egg in ipairs(eggs:GetChildren()) do
+                    if not active() then return end
+                    if egg.Parent == eggs and not seen[egg] then
+                        local ok = pcall(function() event:FireServer("Collect Egg", egg.Name) end)
+                        if not active() then return end
+                        if ok then
+                            seen[egg] = true
+                            count = count + 1
+                        else
+                            failed = true
+                        end
+                        task.wait(0.05)
+                    end
+                end
+                if active() then
+                    setStatus(failed and "Collection request failed; retrying..." or "Collection requests: " .. tostring(count))
+                end
+            else
+                setStatus("Waiting for eggs / game to load...")
+            end
+            task.wait(0.2)
+        end
+    end
     local suffixes = {
         "K","M","B","T","Qd","Qn","Sx","Sp","Oc","No","De",
         "UDe","DDe","TDe","QdDe","QnDe","SxDe","SpDe","OcDe","NoDe","Vt",
@@ -52,19 +81,20 @@ return function(section, data)
     end
 
     local function setMode(nextMode)
+        if not runtime.alive then return end
         generation = generation + 1
         local token = generation
         mode = nextMode
         env.Farming = mode == "farm"
-        collector:Stop()
         saved.farming = mode == "farm"
         saved.collect_eggs_only = mode == "eggs"
-        if farmToggle then farmToggle:Set(saved.farming, true) end
-        if eggToggle then eggToggle:Set(saved.collect_eggs_only, true) end
+        -- WindUI's second argument is isCallback: false updates the other switch silently.
+        if farmToggle then farmToggle:Set(saved.farming, false) end
+        if eggToggle then eggToggle:Set(saved.collect_eggs_only, false) end
         env.LUBSaveConfig(data)
-        if status then status.Text = mode == "off" and "Collection stopped." or "Starting collection..." end
+        setStatus(mode == "off" and "Collection stopped." or "Starting collection...")
         if mode == "off" then return end
-        collector:Start()
+        task.spawn(function() collectEggs(token) end)
         if mode ~= "farm" then return end
 
         local function active() return runtime.alive and mode == "farm" and generation == token end
@@ -103,20 +133,28 @@ return function(section, data)
         end)
     end
 
-    farmToggle = elements:Toggle("Autofarm", section, false, function(value)
-        if value then setMode("farm") elseif mode == "farm" then setMode("off") end
-    end)
-    eggToggle = elements:Toggle("Collect Eggs Only", section, false, function(value)
-        if value then setMode("eggs") elseif mode == "eggs" then setMode("off") end
-    end)
-    elements:Label("Collect Eggs Only collects existing and newly spawned eggs.\nNo depositing, cash collection, upgrades, purchases or merging.", section)
-    status = elements:Label("Collection stopped.", section)
+    farmToggle = section:Toggle({
+        Title = "Autofarm",
+        Desc = "Full farm: collect, deposit, cash, upgrades, buy and merge. Buy your first chicken first.",
+        Value = false,
+        Callback = function(value)
+            if value then setMode("farm") elseif mode == "farm" then setMode("off") end
+        end,
+    })
+    eggToggle = section:Toggle({
+        Title = "Collect Eggs Only",
+        Desc = "Only collect eggs. No depositing, cash, upgrades, purchases or merging.",
+        Value = false,
+        Callback = function(value)
+            if value then setMode("eggs") elseif mode == "eggs" then setMode("off") end
+        end,
+    })
+    status = section:Paragraph({ Title = "Collection Status", Desc = "Collection stopped." })
     table.insert(runtime.cleanups, function()
         generation = generation + 1
         mode = "off"
         env.Farming = false
-        collector:Stop()
     end)
-    -- Synchronous restore invalidates both deferred initial toggle callbacks.
+    -- Restore after both controls exist; WindUI does not call initial callbacks.
     setMode(restoreEggs and "eggs" or restoreFarm and "farm" or "off")
 end

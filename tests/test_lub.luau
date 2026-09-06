@@ -1,4 +1,4 @@
--- Behavioral tests in a deterministic Roblox test double. Run tools/test.py.
+-- LUB behavior with deterministic Roblox/WindUI test doubles. Run tools/test.py.
 local passed = 0
 local function expect(value, message) assert(value, message or "Expectation failed") end
 
@@ -179,20 +179,87 @@ local function setup(options)
         if chunk then setfenv(chunk, globals) end
         return chunk, err
     end
+    -- WindUI 1.6.66 contract: :Set(v, false) suppresses callbacks; user callbacks
+    -- run asynchronously; construction does not invoke the initial toggle value.
+    state.controls = {}
+    local function container(title, kind, parent)
+        local result = { Title = title, Kind = kind, Parent = parent, Elements = {} }
+        table.insert(state.controls, result)
+        if parent then table.insert(parent.Elements, result) end
+        for _, elementKind in ipairs({ "Section", "Paragraph", "Toggle", "Button" }) do
+            result[elementKind] = function(self, config)
+                local control = container(config.Title, elementKind, self)
+                control.Desc = config.Desc
+                control.Value = config.Value
+                control.Callback = config.Callback
+                function control:SetDesc(text) self.Desc = text end
+                function control:Set(value, isCallback)
+                    self.Value = value
+                    if isCallback ~= false and self.Callback then
+                        globals.task.spawn(function() self.Callback(value) end)
+                    end
+                end
+                return control
+            end
+        end
+        return result
+    end
+    globals.TEST_WINDUI = {
+        CreateWindow = function(_, config)
+            local window = { Tabs = {}, Config = config, Closed = false }
+            state.window = window
+            function window:Tab(tabConfig)
+                local tab = container(tabConfig.Title, "Tab")
+                table.insert(self.Tabs, tab)
+                return tab
+            end
+            function window:SelectTab(index)
+                assert(type(index) == "number" and self.Tabs[index], "WindUI requires a numeric tab index")
+                self.Selected = index
+            end
+            function window:OnDestroy(fn) self.destroyCallback = fn end
+            function window:Open() self.Closed = false end
+            function window:Close() self.Closed = true end
+            function window:Destroy()
+                self.Destroyed = true
+                if self.destroyCallback then globals.task.spawn(self.destroyCallback) end
+            end
+            return window
+        end,
+    }
+    globals.game.HttpGet = function(_, url)
+        expect(url == "https://github.com/Footagesus/WindUI/releases/download/1.6.66/main.lua", "Unexpected dependency URL")
+        if options.failWindUI then error("WindUI download failed") end
+        return "return getgenv().TEST_WINDUI"
+    end
+    if options.legacy then
+        globals.LUBRuntime = { alive = true, cleanup = function() state.legacyStopped = true end }
+    end
     globals.LUBSources = SOURCES
-    state:load("src/init.lua")
+    local initialized, initError = pcall(function() state:load("src/init.lua") end)
+    if options.failWindUI then
+        expect(not initialized and tostring(initError):find("WindUI download failed", 1, true))
+    else
+        assert(initialized, initError)
+    end
     state:advance(0)
     function state:find(text)
-        local function visit(object)
-            if object.Text == text or object.Name == text or object.PlaceholderText == text then return object end
-            for _, child in ipairs(object:GetChildren()) do local result = visit(child); if result then return result end end
+        for _, control in ipairs(self.controls) do
+            if control.Title == text then return control end
         end
-        return assert(visit(services.CoreGui), "Missing control: " .. text)
+        error("Missing control: " .. text)
     end
     function state:click(text)
         local object = self:find(text)
-        if object.ClassName == "TextLabel" then object = object.Parent end
-        object.Activated:Fire()
+        if object.Kind == "Toggle" then
+            object:Set(not object.Value)
+        elseif object.Kind == "Tab" then
+            for index, tab in ipairs(self.window.Tabs) do
+                if tab == object then self.window:SelectTab(index) end
+            end
+        else
+            globals.task.spawn(object.Callback)
+        end
         self:advance(0)
     end
     return state
@@ -211,34 +278,22 @@ local function eggCallsOnly(state)
     expect(state.destroyed == 0, "Collector destroyed a local egg")
 end
 
-test("three tabs, settings, search and navigation use the actual UI", function()
+test("WindUI has exactly three tabs and one game entry", function()
     local s = setup()
-    local tabs = 0
-    for _, child in ipairs(s.globals.LUBRuntime.main:GetChildren()) do
-        if child.ClassName == "TextButton" then tabs = tabs + 1 end
-    end
-    expect(tabs == 3, "Expected exactly three tabs")
-    expect(s:find("Game").BackgroundColor3 == s.globals.LUBRequire("src/elements.lua").colors.accent)
+    expect(s.window.Config.Title == "LUB" and s.window.Config.NewElements == true)
+    expect(#s.window.Tabs == 3 and s.window.Selected == 1)
+    expect(s.window.Tabs[1].Title == "Game")
+    expect(s.window.Tabs[2].Title == "Games List")
+    expect(s.window.Tabs[3].Title == "Settings")
     s:click("Games List")
-    local search = s:find("Type a game name...")
-    search.Text = "["; s:advance(0)
-    for _, child in ipairs(search.Parent:GetChildren()) do
-        if child.Name == "GameElement" then expect(child.Visible == false, "Search treated input as a pattern") end
-    end
-    search.Text = "CHICKEN"; s:advance(0)
-    local visible = 0
-    for _, child in ipairs(search.Parent:GetChildren()) do
-        if child.Name == "GameElement" and child.Visible then
-            visible = visible + 1
-            child.Activated:Fire()
-        end
-    end
-    s:advance(0)
-    expect(visible == 1 and s.teleport == 137233438285284)
-    s:click("-")
-    expect(not s.globals.LUBRuntime.main.Visible and s.globals.LUBRuntime.toggle.Visible)
-    s.globals.LUBRuntime.toggle.Activated:Fire(); s:advance(0)
-    expect(s.globals.LUBRuntime.main.Visible)
+    local entries = 0
+    for _, control in ipairs(s.window.Tabs[2].Elements) do if control.Kind == "Button" then entries = entries + 1 end end
+    expect(entries == 1 and s:find("Chicken Farm").Desc:find("137233438285284", 1, true))
+    s:click("Chicken Farm")
+    expect(s.window.Selected == 1 and not s.teleport, "Current game should open the Game tab")
+    local section = s:find("Auto Farm")
+    expect(section.Parent == s.window.Tabs[1])
+    expect(section.Elements[1].Title == "Autofarm" and section.Elements[2].Title == "Collect Eggs Only")
     expect(#s.warnings == 0, table.concat(s.warnings, "\n"))
 end)
 
@@ -316,9 +371,9 @@ end)
 
 test("cleanup stops pending collection and rerun keeps one UI", function()
     local s = setup()
-    local ui = s.globals.LUBRuntime.ui
+    local ui = s.globals.LUBRuntime.window
     s:load("src/init.lua")
-    expect(s.globals.LUBRuntime.ui == ui, "Rerun duplicated the UI")
+    expect(s.globals.LUBRuntime.window == ui, "Rerun duplicated the UI")
     s:click("Collect Eggs Only")
     s.globals.LUBRuntime.cleanup()
     s:egg("after-cleanup"); s:advance(2)
@@ -337,6 +392,36 @@ test("unknown games and unavailable/corrupt config retain working settings", fun
     local recovered = setup({ corrupt = true })
     expect(recovered.globals.LUBRuntime.alive)
     expect(#recovered.warnings == 1)
+end)
+
+test("old UI upgrades, old game settings are removed, settings restore", function()
+    local s = setup({ legacy = true, config = {
+        settings = { disable_3d_rendering = true },
+        ["137233438285284"] = { collect_eggs_only = true },
+        ["999"] = { farming = true },
+    } })
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.0.0")
+    expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
+    expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
+    s:egg("restored"); s:advance(1)
+    eggCallsOnly(s)
+    s:click("Unload LUB"); s:egg("after-unload"); s:advance(1)
+    expect(#s.calls == 1 and s.window.Destroyed and not s.globals.LUBRuntime.alive)
+end)
+
+test("WindUI destroy stops workers and unknown place can join Chicken Farm", function()
+    local s = setup()
+    s:click("Collect Eggs Only"); s.window:Destroy(); s:advance(0)
+    s:egg("after-close"); s:advance(1)
+    expect(#s.calls == 0 and not s.globals.LUBRuntime.alive)
+    local other = setup({ place = 1 })
+    other:click("Open Games List"); other:click("Chicken Farm")
+    expect(other.window.Selected == 2 and other.teleport == 137233438285284)
+end)
+
+test("WindUI download failure leaves no active runtime", function()
+    local s = setup({ failWindUI = true })
+    expect(not s.globals.LUBRuntime.alive)
 end)
 
 print(string.format("%d behavioral tests passed", passed))
