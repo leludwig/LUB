@@ -6,6 +6,10 @@ LUB is a modified version of BrainrotPolice, based on upstream commit
 Changes in LUB 2.0: WindUI interface with three tabs, bundled/local loading,
 separate configuration, and egg-only collection directly in the Chicken Farm
 script. Only game 137233438285284 and its list entry are included.
+Changes in LUB 2.1: restored the original Collect Egg / wait / local Destroy
+sequence and one-second ChildAdded delay. The egg listener is connected before
+the initial scan; stop/unload guards and WindUI controls remain. Egg-only mode
+omits Deposit Eggs and all cash, upgrade, purchase and merge actions.
 Original contributors: esore/vaehz, __ven0x__, wirlypirly12.
 The original Apache License 2.0 is retained in LICENSE.
 

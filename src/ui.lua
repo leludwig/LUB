@@ -1,4 +1,4 @@
--- LUB 2.0: WindUI 1.6.66, with Game, Games List and Settings only.
+-- LUB 2.1: WindUI 1.6.66, with Game, Games List and Settings only.
 local env = getgenv()
 local runtime = env.LUBRuntime
 local source = game:HttpGet("https://github.com/Footagesus/WindUI/releases/download/1.6.66/main.lua")
@@ -76,7 +76,7 @@ SettingsTab:Toggle({
 -- WindUI intentionally does not invoke toggle callbacks for their initial value.
 setRendering(settings.disable_3d_rendering)
 SettingsTab:Paragraph({
-    Title = "LUB 2.0",
+    Title = "LUB 2.1",
     Desc = "WindUI by Footages. Based on BrainrotPolice by esore / vaehz.\nRight Shift: show / hide. Settings save automatically when file access is available.",
 })
 SettingsTab:Button({

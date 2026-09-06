@@ -5,7 +5,7 @@ LUB für **Chicken Farm**, Place-ID **137233438285284**, mit der Oberfläche von
 ## Starten
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/leludwig/LUB/main/LUB.lua?v=2"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/leludwig/LUB/main/LUB.lua?v=2.1"))()
 ```
 
 LUB lädt WindUI **1.6.66** aus dem [offiziellen Release](https://github.com/Footagesus/WindUI/releases/tag/1.6.66). Die Oberfläche hat genau drei Tabs: **Game**, **Games List** und **Settings**.
@@ -21,7 +21,9 @@ Im Bereich **Auto Farm** befinden sich diese beiden Schalter direkt untereinande
 
 Die Schalter deaktivieren sich gegenseitig. Das Ausschalten stoppt auch wartende Durchläufe. Beide Funktionen und ihre gesamte Logik stehen direkt in `src/games/137233438285284.lua`; es gibt kein separates Sammler-Modul.
 
-`Collection requests` zählt gesendete Sammelanfragen. Ob der Spielserver sie annimmt, hängt unter anderem vom Inventar und den aktuellen Spiel-Remotes ab. LUB löscht keine Eier lokal und lagert sie im Eiermodus nicht automatisch ein.
+Version 2.1 übernimmt den Sammelablauf aus dem [Originalskript](https://raw.githubusercontent.com/IcantAffordSynapse/BrainrotPolice/refs/heads/main/src/games/137233438285284.lua): Für vorhandene Eier `FireServer("Collect Egg", egg.Name)`, danach `task.wait()` und `egg:Destroy()`. Neue Eier werden über `workspace.Eggs.ChildAdded` nach einer Sekunde auf dieselbe Weise eingesammelt. Der Listener wird vor dem ersten Durchlauf verbunden, damit währenddessen erscheinende Eier ebenfalls erfasst werden. Einlagern und die weiteren Farm-Aktionen laufen ausschließlich im vollständigen Autofarm-Modus.
+
+Die lokale Entfernung entspricht dem Original und ist keine Bestätigung des Spielservers. Die Annahme der Sammelanfragen kann hier nicht live geprüft werden. Bei einem Lua-Fehler stoppt der Schalter und `Collection Status` zeigt den Fehler an; nach vollständigem Laden des Spiels kann der Modus erneut eingeschaltet werden.
 
 ## Games List
 
@@ -37,7 +39,7 @@ Ein Klick auf Chicken Farm öffnet im laufenden Spiel den Game-Tab; aus einem an
 
 WindUI lässt sich mit **Right Shift** aus- und einblenden. Die kleine **LUB**-Schaltfläche öffnet das Fenster ebenfalls.
 
-Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Alte Einträge für andere Spiele werden beim Laden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.0; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
+Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Alte Einträge für andere Spiele werden beim Laden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.1; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
 
 Optional kann die Startdatei lokal als `LUB/LUB.lua` im Workspace der Ausführungsumgebung abgelegt und so ausgeführt werden:
 
@@ -68,7 +70,7 @@ python tools/test.py --luau-dir .tools/luau
 
 Der Build braucht nur Python 3. Für die Tests werden `luau` und `luau-compile` aus den [offiziellen Luau-Releases](https://github.com/luau-lang/luau/releases) benötigt. Der Build prüft, dass nur das vorgesehene Spielskript und der einzelne Listeneintrag enthalten sind.
 
-Geprüft werden vier Luau-Dateien einschließlich Startdatei und 13 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Tabs, einzelner Spieleintrag, Eiersammeln, Stoppen, Moduswechsel, gespeicherte Einstellungen, Upgrade der alten Oberfläche und Schließen des Fensters. Die offizielle WindUI-Release-Datei wurde separat kompiliert. Die Darstellung im Roblox-Client und die Annahme von Sammelanfragen auf einem aktuellen Spielserver wurden nicht live verifiziert.
+Geprüft werden vier Luau-Dateien einschließlich Startdatei und 17 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Sammelaufrufe, Wartezeiten und lokale Entfernung wie im Original, Eier während des Startdurchlaufs, Stoppen wartender Ereignisse, Fehleranzeige, Moduswechsel, ursprüngliche Reihenfolge der vollständigen Farm-Aktionen sowie Tabs, Einstellungen und Versionswechsel. Die offizielle WindUI-Release-Datei wurde separat kompiliert. Die Darstellung im Roblox-Client und die Annahme von Sammelanfragen auf einem aktuellen Spielserver wurden nicht live verifiziert.
 
 ## Herkunft
 

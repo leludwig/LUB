@@ -1,66 +1,40 @@
--- Chicken Farm / 137233438285284. All farm logic and its WindUI controls live here.
+-- Chicken Farm: collection and full-farm sequence from BrainrotPolice.
+-- LUB changes: WindUI/config integration, eggs-only mode and stop/unload guards.
 return function(tab, data)
     local env = getgenv()
     local runtime = env.LUBRuntime
-    local player = game:GetService("Players").LocalPlayer
-    local storage = game:GetService("ReplicatedStorage")
+    local plr = game:GetService("Players").LocalPlayer
     local place = tostring(game.PlaceId)
-    local saved = type(data[place]) == "table" and data[place] or {}
-    data[place] = saved
-    -- Prefer eggs-only if a config has both modes enabled.
-    local restoreEggs = saved.collect_eggs_only == true
-    local restoreFarm = saved.farming == true and not restoreEggs
+    local setdata = type(data[place]) == "table" and data[place] or {}
+    data[place] = setdata
+    local restoreEggs = setdata.collect_eggs_only == true
+    local restoreFarm = setdata.farming == true and not restoreEggs
     env.Farming = false
 
-    local function remote(name)
-        local paper = storage:FindFirstChild("Paper")
-        local remotes = paper and paper:FindFirstChild("Remotes")
-        return remotes and remotes:FindFirstChild(name)
-    end
-
     local section = tab:Section({ Title = "Auto Farm", Icon = "egg", Opened = true })
-    local status, lastStatus
-    local function setStatus(text)
-        if status and runtime.alive and lastStatus ~= text then
-            lastStatus = text
-            status:SetDesc(text)
-        end
-    end
+    local status, farmToggle, eggToggle
     local mode, generation = "off", 0
-    local farmToggle, eggToggle
+    local addedCon
+    local setMode
 
-    -- Shared egg scan. The eggs-only mode never starts the full-farm loop below.
-    local function collectEggs(token)
-        local seen = setmetatable({}, { __mode = "k" })
-        local count = 0
-        local function active() return runtime.alive and mode ~= "off" and generation == token end
-        while active() do
-            local eggs, event = workspace:FindFirstChild("Eggs"), remote("__remoteevent")
-            local failed = false
-            if eggs and event then
-                for _, egg in ipairs(eggs:GetChildren()) do
-                    if not active() then return end
-                    if egg.Parent == eggs and not seen[egg] then
-                        local ok = pcall(function() event:FireServer("Collect Egg", egg.Name) end)
-                        if not active() then return end
-                        if ok then
-                            seen[egg] = true
-                            count = count + 1
-                        else
-                            failed = true
-                        end
-                        task.wait(0.05)
-                    end
-                end
-                if active() then
-                    setStatus(failed and "Collection request failed; retrying..." or "Collection requests: " .. tostring(count))
-                end
-            else
-                setStatus("Waiting for eggs / game to load...")
-            end
-            task.wait(0.2)
+    local function active(token)
+        return runtime.alive and mode ~= "off" and generation == token
+    end
+    local function disconnect()
+        if addedCon then addedCon:Disconnect(); addedCon = nil end
+    end
+    local function setStatus(text)
+        if status and runtime.alive then status:SetDesc(text) end
+    end
+    local function guarded(token, callback)
+        local ok, err = pcall(callback)
+        if not ok and active(token) then
+            setMode("off")
+            setStatus("Collection stopped: " .. tostring(err))
+            warn("LUB Chicken Farm: " .. tostring(err))
         end
     end
+
     local suffixes = {
         "K","M","B","T","Qd","Qn","Sx","Sp","Oc","No","De",
         "UDe","DDe","TDe","QdDe","QnDe","SxDe","SpDe","OcDe","NoDe","Vt",
@@ -71,66 +45,104 @@ return function(tab, data)
         "Usg","Dsg","Tsg","Qdsg","Qnsg","Sxsg","Spsg","Ocsg","Nosg","Sg",
         "USg","DSg","TSg","QdSg","QnSg","SxSg","SpSg","OcSg","NoSg","Og",
         "UOg","DOg","TOg","QdOg","QnOg","SxOg","SpOg","OcOg","NoOg","Ng",
-        "UNg","DNg","TNg","QdNg","QnNg","SxNg","SpNg","OcNg","NoNg","Ce","UCe",
+        "UNg","DNg","TNg","QdNg","QnNg","SxNg","SpNg","OcNg","NoNg","Ce","UCe"
     }
-    local multipliers = { [""] = 1 }
-    for index, suffix in ipairs(suffixes) do multipliers[suffix] = 1000 ^ index end
-    local function number(text)
-        local base, suffix = tostring(text):gsub("[%$,%s]", ""):match("^(%d*%.?%d+)(%a*)$")
-        return tonumber(base) and multipliers[suffix] and tonumber(base) * multipliers[suffix] or nil
+    local suffixValue = {}
+    for i, suf in ipairs(suffixes) do suffixValue[suf] = 1000 ^ i end
+    local function parseSuffixedNumber(str)
+        str = str:gsub("[%$,%s]", "")
+        local numberPart, suffixPart = str:match("^(-?%d*%.?%d+)(%a*)$")
+        local base = tonumber(numberPart)
+        if suffixPart == "" then return base end
+        local multiplier = suffixValue[suffixPart]
+        return base * multiplier
     end
 
-    local function setMode(nextMode)
+    local function run(token, eggsOnly)
+        if not active(token) then return end
+        local mainEvent = game:GetService("ReplicatedStorage").Paper.Remotes.__remoteevent
+        local mainFunction, cashval, buyBtns
+        -- These original dependencies are only needed by the full farm.
+        if not eggsOnly then
+            mainFunction = game:GetService("ReplicatedStorage").Paper.Remotes.__remotefunction
+            cashval = plr.PlayerGui.Main.Currencies.Cash.List.Amount
+            buyBtns = workspace.Plots[plr.Name].Buttons.BuyChickens
+        end
+
+        -- Original new-egg sequence, including its one-second delay.
+        -- Subscribe before scanning so eggs appearing during the scan aren't missed.
+        addedCon = workspace.Eggs.ChildAdded:Connect(function(c)
+            guarded(token, function()
+                task.wait(1)
+                if not active(token) then return end
+                mainEvent:FireServer("Collect Egg", c.Name)
+                task.wait()
+                if not active(token) then return end
+                c:Destroy()
+                if not eggsOnly then mainFunction:InvokeServer("Deposit Eggs") end
+            end)
+        end)
+
+        -- Original existing-egg sequence: collect, yield, destroy locally.
+        for i, v in pairs(workspace.Eggs:GetChildren()) do
+            if not active(token) then return end
+            mainEvent:FireServer("Collect Egg", v.Name)
+            task.wait()
+            if not active(token) then return end
+            v:Destroy()
+        end
+        task.wait()
+        if not active(token) then return end
+        if not eggsOnly then mainFunction:InvokeServer("Deposit Eggs") end
+        if not active(token) then return end
+        setStatus(eggsOnly and "Collecting existing and new eggs." or "Autofarm running.")
+        if eggsOnly then return end
+
+        -- Original full-farm actions and waits. Never entered in eggs-only mode.
+        while active(token) do
+            mainFunction:InvokeServer("Collect Cash")
+            task.wait()
+            if not active(token) then return end
+            mainFunction:InvokeServer("Upgrade Process Level")
+            task.wait()
+            if not active(token) then return end
+            local tobuy = 0
+            local result = parseSuffixedNumber(cashval.Text)
+            if parseSuffixedNumber(buyBtns.Buy100.Button.UI.Cost.Text) <= result then
+                tobuy = 100
+            elseif parseSuffixedNumber(buyBtns.Buy25.Button.UI.Cost.Text) <= result then
+                tobuy = 25
+            elseif parseSuffixedNumber(buyBtns.Buy5.Button.UI.Cost.Text) <= result then
+                tobuy = 5
+            elseif parseSuffixedNumber(buyBtns.Buy1.Button.UI.Cost.Text) <= result then
+                tobuy = 1
+            end
+            mainFunction:InvokeServer("Buy Chickens", tobuy)
+            task.wait()
+            if not active(token) then return end
+            mainFunction:InvokeServer("Merge Chickens")
+            task.wait(1)
+        end
+    end
+
+    setMode = function(nextMode)
         if not runtime.alive then return end
         generation = generation + 1
         local token = generation
+        disconnect()
         mode = nextMode
         env.Farming = mode == "farm"
-        saved.farming = mode == "farm"
-        saved.collect_eggs_only = mode == "eggs"
-        -- WindUI's second argument is isCallback: false updates the other switch silently.
-        if farmToggle then farmToggle:Set(saved.farming, false) end
-        if eggToggle then eggToggle:Set(saved.collect_eggs_only, false) end
+        setdata.farming = mode == "farm"
+        setdata.collect_eggs_only = mode == "eggs"
+        -- WindUI: false suppresses callbacks when updating the other switch.
+        if farmToggle then farmToggle:Set(setdata.farming, false) end
+        if eggToggle then eggToggle:Set(setdata.collect_eggs_only, false) end
         env.LUBSaveConfig(data)
         setStatus(mode == "off" and "Collection stopped." or "Starting collection...")
-        if mode == "off" then return end
-        task.spawn(function() collectEggs(token) end)
-        if mode ~= "farm" then return end
-
-        local function active() return runtime.alive and mode == "farm" and generation == token end
-        local function invoke(action, argument)
-            if not active() then return end
-            local fn = remote("__remotefunction")
-            if fn then
-                if argument ~= nil then fn:InvokeServer(action, argument) else fn:InvokeServer(action) end
-            end
+        if mode ~= "off" then
+            local eggsOnly = mode == "eggs"
+            task.spawn(function() guarded(token, function() run(token, eggsOnly) end) end)
         end
-        task.spawn(function()
-            while active() do
-                local ok, err = pcall(function()
-                    invoke("Deposit Eggs")
-                    invoke("Collect Cash")
-                    invoke("Upgrade Process Level")
-                    if not active() then return end
-                    -- Full-farm-only dependencies: egg mode does not access money or shop UI.
-                    local gui = player:FindFirstChild("PlayerGui")
-                    local main = gui and gui:FindFirstChild("Main")
-                    local plots = workspace:FindFirstChild("Plots")
-                    local plot = plots and plots:FindFirstChild(player.Name)
-                    if main and plot then
-                        local cash = number(main.Currencies.Cash.List.Amount.Text)
-                        local buttons = plot.Buttons.BuyChickens
-                        for _, amount in ipairs({ 100, 25, 5, 1 }) do
-                            local price = number(buttons["Buy" .. amount].Button.UI.Cost.Text)
-                            if cash and price and price <= cash then invoke("Buy Chickens", amount); break end
-                        end
-                    end
-                    invoke("Merge Chickens")
-                end)
-                if not ok and active() then warn("LUB Autofarm: " .. tostring(err)) end
-                task.wait(1)
-            end
-        end)
     end
 
     farmToggle = section:Toggle({
@@ -143,7 +155,7 @@ return function(tab, data)
     })
     eggToggle = section:Toggle({
         Title = "Collect Eggs Only",
-        Desc = "Only collect eggs. No depositing, cash, upgrades, purchases or merging.",
+        Desc = "Collect existing and new eggs. No depositing, cash, upgrades, purchases or merging.",
         Value = false,
         Callback = function(value)
             if value then setMode("eggs") elseif mode == "eggs" then setMode("off") end
@@ -154,7 +166,7 @@ return function(tab, data)
         generation = generation + 1
         mode = "off"
         env.Farming = false
+        disconnect()
     end)
-    -- Restore after both controls exist; WindUI does not call initial callbacks.
     setMode(restoreEggs and "eggs" or restoreFarm and "farm" or "off")
 end

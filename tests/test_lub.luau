@@ -4,7 +4,7 @@ local function expect(value, message) assert(value, message or "Expectation fail
 
 local function setup(options)
     options = options or {}
-    local state = { now = 0, jobs = {}, calls = {}, warnings = {}, saved = {}, destroyed = 0 }
+    local state = { now = 0, jobs = {}, calls = {}, warnings = {}, saved = {}, destroyed = 0, trace = {} }
     local globals = setmetatable({}, { __index = getfenv() })
     state.globals = globals
     globals.getgenv = function() return globals end
@@ -66,7 +66,10 @@ local function setup(options)
     function methods:SetAttribute(name, value) self._attrs[name] = value end
     function methods:GetAttribute(name) return self._attrs[name] end
     function methods:Destroy()
-        if self.Parent == state.eggs then state.destroyed = state.destroyed + 1 end
+        if self.Parent == state.eggs then
+            state.destroyed = state.destroyed + 1
+            table.insert(state.trace, { action = "Destroy", name = self.Name, at = state.now })
+        end
         self.Parent = nil
         for _, child in ipairs(self:GetChildren()) do child:Destroy() end
     end
@@ -89,6 +92,9 @@ local function setup(options)
                         for i, child in ipairs(old._children) do if child == self then table.remove(old._children, i); break end end
                     end
                     if value then table.insert(value._children, self) end
+                    self._props.Parent = value
+                    if old and old ~= value then old.ChildRemoved:Fire(self) end
+                    if value and old ~= value then value.ChildAdded:Fire(self) end
                 end
                 self._props[key] = value
                 if self._signals[key] then self._signals[key]:Fire() end
@@ -158,15 +164,35 @@ local function setup(options)
         local event = node("RemoteEvent", "__remoteevent", remotes)
         event.FireServer = function(_, action, name)
             if state.failEvent then error("Temporary remote failure") end
-            table.insert(state.calls, { kind = "event", action = action, name = name })
+            local call = { kind = "event", action = action, name = name, at = state.now }
+            table.insert(state.calls, call)
+            table.insert(state.trace, call)
         end
         local fn = node("RemoteFunction", "__remotefunction", remotes)
         fn.InvokeServer = function(_, action, value)
-            table.insert(state.calls, { kind = "function", action = action, value = value })
+            table.insert(state.calls, { kind = "function", action = action, value = value, at = state.now })
             globals.task.wait(0.1)
         end
     end
     function state:egg(name) return node("Model", name, self.eggs) end
+    function state:farmUI()
+        local gui = node("PlayerGui", "PlayerGui", player)
+        local main = node("ScreenGui", "Main", gui)
+        local currencies = node("Folder", "Currencies", main)
+        local cash = node("Folder", "Cash", currencies)
+        local list = node("Folder", "List", cash)
+        node("TextLabel", "Amount", list).Text = "$30K"
+        local plots = node("Folder", "Plots", globals.workspace)
+        local plot = node("Folder", player.Name, plots)
+        local buttons = node("Folder", "Buttons", plot)
+        local buyChickens = node("Folder", "BuyChickens", buttons)
+        for _, amount in ipairs({ 100, 25, 5, 1 }) do
+            local buy = node("Folder", "Buy" .. amount, buyChickens)
+            local button = node("Folder", "Button", buy)
+            local ui = node("Folder", "UI", button)
+            node("TextLabel", "Cost", ui).Text = "$" .. amount .. "K"
+        end
+    end
     if not options.lateWorld then state:world() end
     function state:load(path)
         local chunk, err = loadstring(assert(SOURCES[path], path), "@" .. path)
@@ -233,7 +259,7 @@ local function setup(options)
         return "return getgenv().TEST_WINDUI"
     end
     if options.legacy then
-        globals.LUBRuntime = { alive = true, cleanup = function() state.legacyStopped = true end }
+        globals.LUBRuntime = { alive = true, version = "2.0.0", cleanup = function() state.legacyStopped = true end }
     end
     globals.LUBSources = SOURCES
     local initialized, initError = pcall(function() state:load("src/init.lua") end)
@@ -275,7 +301,6 @@ local function eggCallsOnly(state)
     for _, call in ipairs(state.calls) do
         expect(call.kind == "event" and call.action == "Collect Egg", "Egg-only mode performed " .. call.action)
     end
-    expect(state.destroyed == 0, "Collector destroyed a local egg")
 end
 
 test("WindUI has exactly three tabs and one game entry", function()
@@ -297,18 +322,51 @@ test("WindUI has exactly three tabs and one game entry", function()
     expect(#s.warnings == 0, table.concat(s.warnings, "\n"))
 end)
 
-test("egg-only collects existing and new eggs exactly once per activation", function()
+test("original existing-egg sequence fires, waits, then destroys each egg", function()
     local s = setup()
     s:egg("a"); s:egg("b")
     expect(#s.calls == 0, "Farm started by default")
-    s:click("Collect Eggs Only"); s:advance(2)
+    s:click("Collect Eggs Only")
+    expect(#s.calls == 1 and s.destroyed == 0, "Original wait before Destroy was lost")
+    s:advance(2)
     expect(#s.calls == 2, "Existing eggs were missed or duplicated")
+    expect(s.destroyed == 2 and #s.eggs:GetChildren() == 0)
+    expect(#s.trace == 4)
+    for index = 1, 4, 2 do
+        local collect, destroy = s.trace[index], s.trace[index + 1]
+        expect(collect.action == "Collect Egg" and destroy.action == "Destroy" and collect.name == destroy.name)
+        expect(destroy.at > collect.at, "Destroy must happen after task.wait()")
+    end
     s:egg("c"); s:advance(2)
     expect(#s.calls == 3, "New egg was missed or duplicated")
+    expect(s.destroyed == 3)
     eggCallsOnly(s)
     s:click("Collect Eggs Only"); s:egg("d"); s:advance(2)
     expect(#s.calls == 3, "Collection continued after disabling")
     expect(s.globals.LUBRuntime.config["137233438285284"].collect_eggs_only == false)
+end)
+
+test("ChildAdded waits one second before collecting and then yields before Destroy", function()
+    local s = setup()
+    s:click("Collect Eggs Only"); s:advance(0.01)
+    local start = s.now
+    local egg = s:egg("new")
+    s:advance(0.999)
+    expect(#s.calls == 0 and egg.Parent == s.eggs, "New egg collected before the original one-second delay")
+    s:advance(start + 1 - s.now)
+    expect(#s.calls == 1 and s.calls[1].at == start + 1)
+    expect(egg.Parent == s.eggs, "New egg destroyed before the original yield")
+    s:advance(0.01)
+    expect(egg.Parent == nil and s.destroyed == 1)
+    eggCallsOnly(s)
+end)
+
+test("eggs appearing during the initial scan are not missed", function()
+    local s = setup()
+    s:egg("existing"); s:click("Collect Eggs Only")
+    s:egg("during-scan"); s:advance(2)
+    expect(#s.calls == 2 and s.destroyed == 2)
+    eggCallsOnly(s)
 end)
 
 test("disable interrupts an in-progress egg scan", function()
@@ -328,31 +386,38 @@ test("rapid start-stop-start leaves one active collector", function()
     eggCallsOnly(s)
 end)
 
-test("late game hierarchy and replaced egg folder recover", function()
+test("missing game hierarchy shows a stopped error and can be enabled when loaded", function()
     local s = setup({ lateWorld = true })
     s:click("Collect Eggs Only"); s:advance(1)
-    expect(#s.calls == 0)
-    s:world(); s:egg("late"); s:advance(1)
-    expect(#s.calls == 1)
-    s.eggs:Destroy()
-    s.eggs = s.node("Folder", "Eggs", s.globals.workspace)
-    s:egg("replacement"); s:advance(1)
-    expect(#s.calls == 2)
+    expect(#s.calls == 0 and not s:find("Collect Eggs Only").Value)
+    expect(s:find("Collection Status").Desc:find("Collection stopped:", 1, true))
+    s:world(); s:egg("late"); s:click("Collect Eggs Only"); s:advance(1)
+    expect(#s.calls == 1 and s.destroyed == 1)
 end)
 
-test("temporary collection errors retry without counting a failure", function()
+test("failed remote does not destroy the egg and reports the error", function()
     local s = setup()
     s:egg("retry"); s.failEvent = true
     s:click("Collect Eggs Only"); s:advance(1)
-    expect(#s.calls == 0)
-    s.failEvent = false; s:advance(1)
-    expect(#s.calls == 1)
+    expect(#s.calls == 0 and s.destroyed == 0 and not s:find("Collect Eggs Only").Value)
+    expect(s:find("Collection Status").Desc:find("Temporary remote failure", 1, true))
+    s.failEvent = false; s:click("Collect Eggs Only"); s:advance(1)
+    expect(#s.calls == 1 and s.destroyed == 1)
     eggCallsOnly(s)
+end)
+
+test("turning off cancels a ChildAdded callback already waiting", function()
+    local s = setup()
+    s:click("Collect Eggs Only"); s:advance(0.01)
+    s:egg("pending"); s:advance(0.5)
+    s:click("Collect Eggs Only"); s:advance(2)
+    expect(#s.calls == 0 and s.destroyed == 0, "Disconnected callback ignored stop while waiting")
 end)
 
 test("switching from full farm cancels its pending follow-up actions", function()
     local s = setup()
-    s:click("Autofarm")
+    s:farmUI()
+    s:click("Autofarm"); s:advance(0.002)
     expect(s.calls[1].action == "Deposit Eggs")
     s:click("Collect Eggs Only")
     s:egg("egg"); s:advance(2)
@@ -360,6 +425,18 @@ test("switching from full farm cancels its pending follow-up actions", function(
     local saved = s.globals.LUBRuntime.config["137233438285284"]
     expect(saved.collect_eggs_only and not saved.farming)
     expect(not s.globals.Farming)
+end)
+
+test("full farm retains the original collect/deposit/cash/upgrade/buy/merge order", function()
+    local s = setup()
+    s:farmUI(); s:egg("first")
+    s:click("Autofarm"); s:advance(0.6)
+    local actions = { "Collect Egg", "Deposit Eggs", "Collect Cash", "Upgrade Process Level", "Buy Chickens", "Merge Chickens" }
+    expect(#s.calls == #actions)
+    for i, action in ipairs(actions) do expect(s.calls[i].action == action, "Changed original farm action order") end
+    expect(s.calls[5].value == 25, "Original purchase selection changed")
+    expect(s.destroyed == 1)
+    s:click("Autofarm")
 end)
 
 test("conflicting saved modes restore only egg collection", function()
@@ -400,7 +477,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.0.0")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.1.0")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
