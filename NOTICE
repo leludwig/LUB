@@ -1,0 +1,9 @@
+BrainrotPolice is owned by esore/vaehz
+Open sourced + free, you can find the official repo at https://github.com/IcantAffordSynapse/BrainrotPolice/tree/main
+
+LUB is a modified version of BrainrotPolice, based on upstream commit
+1f12e4fc599b5c4f6939c813a4e6eb218555c959 (retrieved 2026-09-06).
+Changes: LUB branding, a code-built three-tab interface, bundled/local loading,
+separate configuration, and an egg-only collector for Chicken Farm.
+Original contributors: esore/vaehz, __ven0x__, wirlypirly12.
+The original Apache License 2.0 is retained in LICENSE.
