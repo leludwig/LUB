@@ -1,6 +1,6 @@
 # LUB
 
-LUB für **Chicken Farm** und **Sell Ores**, mit der Oberfläche von [WindUI](https://github.com/Footagesus/WindUI).
+LUB für **Chicken Farm**, **Sell Ores** und **Fishing Chef**, mit der Oberfläche von [WindUI](https://github.com/Footagesus/WindUI).
 
 ## Starten
 
@@ -46,9 +46,21 @@ Die aufklappbaren Bereiche enthalten alle bisherigen Bedienelemente:
 
 Für die Prompt-Aktionen benötigt die Ausführungsumgebung `fireproximityprompt`; für die übernommenen SurfaceGui-Helfer außerdem `getconnections`. Die Figur wird wie in der Vorlage kurz an der jeweiligen Interaktion gehalten. Unload beendet auch wartende Folgeaktionen, löst die Verbindungen und stellt die von dieser Instanz veränderten Kaufdialog-Hooks wieder her. Ein vorgezogener lokaler `FURNACE`-Verweis behebt einen Variablenfehler der Vorlage in der Upgrade-Reserveberechnung.
 
+## Fishing Chef · 88599461076137
+
+Version 2.5.0 ergänzt unter **Game → Auto Farm → Autofarm** einen vollständigen **Nigiri-Ablauf**: angeln, Fisch schneiden, Nigiri kochen und eigene Nigiri-Kunden bedienen. Das Restaurant muss geöffnet sein; eine Angel muss im Rucksack oder ausgerüstet sein. Der Schalter startet bei jedem Laden ausgeschaltet.
+
+LUB nutzt den bereits vorhandenen Angelcontroller des Spiels und prüft am Steg der eigenen Parzelle die Blickrichtung auf befischbares Wasser. **Set fishing spot** übernimmt bei ausgeschaltetem Autofarm die aktuelle Position und Blickrichtung für diese Sitzung. Ohne gültigen Angelplatz, Angel oder bestätigten Fang innerhalb von 60 Sekunden stoppt die Routine mit einem Hinweis.
+
+Fische, Zutaten und fertige Gerichte werden aus den aktuellen Spieldaten gewählt. Teichfische und Favoriten werden nicht verwendet. Da der Server beim Bedienen das Gericht auswählt, pausiert LUB diese Rezeptart, sobald ein entsprechendes favorisiertes Gericht vorhanden ist. Es wird höchstens ein Nigiri auf Vorrat gekocht; eigene passende Kunden haben Vorrang. Fremde Kunden, geschlossene Restaurants sowie andere Rezeptarten werden nicht bedient. Sashimi, Sushi und Herdgerichte mit zusätzlichen Minispielschritten sind noch nicht umgesetzt; automatische Käufe und Upgrades gehören nicht zu dieser Erweiterung.
+
+Die Schneideschritte verwenden die Ziele der aktuellen `StartCutSession` und die Cursorbewegung des normalen Schneideminispiels. `CutFish` verwendet die aktuelle Fisch-ID; `Cook` erhält eine erneut gelesene Zutat. Erst ein neuer Eintrag in `Plates` zählt als gekochtes Gericht; die Zahl bedienter Kunden kommt aus dem replizierten Spielzähler. Ausschalten, Entladen und Charakterwechsel stoppen Folgeschritte sowie das von LUB gestartete automatische Angeln. Bereits beim Server laufende Aufrufe können nicht zurückgenommen werden.
+
+Grundlage sind die bereitgestellten Cobalt-Logs und die zuvor ausgelesene Clientstruktur. Der native Angelablauf wurde am eigenen Steg live bestätigt (Fangzähler 12 → 13). **Der neue vollständige Restaurantablauf wurde nur lokal mit simulierten Serverantworten getestet, noch nicht live bestätigt.** Der permanente GitHub-Startbefehl lädt diese Erweiterung aus `main`; denselben Befehl nach dem Update erneut ausführen.
+
 ## Games List
 
-Die Liste enthält **Chicken Farm / 137233438285284** und **Sell Ores / 122572082932179**. Jedes Spiel hat sein eigenes Skript im Ordner `src/games`. Die zugehörige Listendatei ist `src/gameslist.json`; sie bestimmt auch, welches Modul geladen wird und welche Spieleinstellungen erhalten bleiben.
+Die Liste enthält **Chicken Farm / 137233438285284**, **Sell Ores / 122572082932179** und **Fishing Chef / 88599461076137**. Jedes Spiel hat sein eigenes Skript im Ordner `src/games`. Die zugehörige Listendatei ist `src/gameslist.json`; sie bestimmt auch, welches Modul geladen wird und welche Spieleinstellungen erhalten bleiben.
 
 Ein Klick auf einen Spieleintrag oder dessen Play-Symbol fragt die aktuelle öffentliche Serverliste bei Roblox ab und wählt einen laufenden Server mit freien Plätzen. Volle Server, leere Einträge und der aktuelle `game.JobId` werden übersprungen. Server-IDs werden nicht gespeichert. Pro Suche werden höchstens drei Seiten geprüft; bei einem fehlgeschlagenen Beitritt wird die Liste erneut abgefragt und insgesamt höchstens drei verschiedene Server versucht.
 
@@ -68,7 +80,7 @@ Bei einem unbekannten Spiel zeigt der Game-Tab **Game not supported** mit der ak
 
 WindUI lässt sich mit **Insert (Einfg)** aus- und einblenden. Die kleine **LUB**-Schaltfläche öffnet das Fenster ebenfalls.
 
-Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Die beiden unterstützten Spiele haben getrennte Einstellungen; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.4.1; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
+Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Chicken Farm und Sell Ores haben getrennte gespeicherte Einstellungen; Fishing Chef wird pro Sitzung gestartet; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.5.0; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
 
 Optional kann die Startdatei lokal als `LUB/LUB.lua` im Workspace der Ausführungsumgebung abgelegt und so ausgeführt werden:
 
@@ -85,6 +97,7 @@ src/
   games/
     122572082932179.lua  # Sell Ores: seltonmt-Spielabläufe mit WindUI
     137233438285284.lua  # Alle Chicken-Farm-Funktionen inklusive Eiermodus
+    88599461076137.lua   # Fishing Chef: Angeln und Nigiri-Restaurantablauf
   gameslist.json        # Unterstützte Spiele und ihre Place-IDs
   init.lua              # Start, Konfiguration und Aufräumen
   join.lua              # Öffentliche Serverwahl und Roblox-Spieldialog
@@ -101,7 +114,7 @@ python tools/test.py --luau-dir .tools/luau
 
 Der Build braucht nur Python 3. Für die Tests werden `luau` und `luau-compile` aus den [offiziellen Luau-Releases](https://github.com/luau-lang/luau/releases) benötigt. Der Build prüft eindeutige Place-IDs und die Übereinstimmung zwischen Games List und den enthaltenen Spielskripten.
 
-Geprüft werden sechs Luau-Dateien einschließlich Startdatei und 35 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Chicken-Farm-Ablauf, automatische Basiswahl, Sell-Ores-Prompt-Reihenfolge und Wartezeiten, Roll-Käufe, Verkauf, verfügbare Belohnungen, Upgrade-Käufe, Ofen-Durchsatz und Erzentscheidungen, Entladen sowie Spielbeitritt, Insert-Taste, getrennte Einstellungen, unbekannte Spiele und Versionswechsel. Die Beitrittstests decken aktuelle/volle Server, Pagination, HTTP-Fehler, begrenzte Wiederholungen, Zugriffsablehnungen, Roblox-Dialog, Mehrfachklicks, Timeouts und Abbruch beim Entladen ab. Die öffentlichen Serverlisten und die Zuordnung der Startplätze wurden über die Roblox-API geprüft. Die Darstellung im Roblox-Client und die Annahme der Aktionen auf aktuellen Spielservern wurden nicht live verifiziert.
+Geprüft werden sieben Luau-Dateien einschließlich Startdatei und 47 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Chicken-Farm-Ablauf, automatische Basiswahl, Sell-Ores-Prompt-Reihenfolge und Wartezeiten, Roll-Käufe, Verkauf, verfügbare Belohnungen, Upgrade-Käufe, Ofen-Durchsatz und Erzentscheidungen, Entladen sowie Spielbeitritt, Insert-Taste, getrennte Einstellungen, unbekannte Spiele und Versionswechsel. Die Beitrittstests decken aktuelle/volle Server, Pagination, HTTP-Fehler, begrenzte Wiederholungen, Zugriffsablehnungen, Roblox-Dialog, Mehrfachklicks, Timeouts und Abbruch beim Entladen ab. Die öffentlichen Serverlisten und die Zuordnung der Startplätze wurden über die Roblox-API geprüft. Die Fishing-Chef-Tests prüfen zusätzlich die Nigiri-Kette, Favoriten und Eigentümer, abgeschaltete Restaurants, Abbrüche, Versionsschutz durch Laufkennungen, verzögerte Antworten, Fehler und Zeitlimits. Die Darstellung und der vollständige Restaurantablauf wurden nicht live verifiziert; der oben beschriebene einzelne Angeltest ist davon ausgenommen.
 
 ## Herkunft
 

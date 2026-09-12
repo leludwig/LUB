@@ -74,6 +74,9 @@ local function setup(options)
         return nil
     end
     function methods:WaitForChild(name) return self:FindFirstChild(name) end
+    function methods:FindFirstChildOfClass(class)
+        for _, child in ipairs(self:GetChildren()) do if child.ClassName == class then return child end end
+    end
     function methods:FindFirstChildWhichIsA(class, recursive)
         for _, child in ipairs(recursive and self:GetDescendants() or self:GetChildren()) do
             if child:IsA(class) then return child end
@@ -472,6 +475,7 @@ local function setup(options)
     if options.legacy then
         globals.LUBRuntime = { alive = true, version = "2.4.0", cleanup = function() state.legacyStopped = true end }
     end
+    if options.prepare then options.prepare(state, player, storage) end
     globals.LUBSources = SOURCES
     local initialized, initError = pcall(function() state:load("src/init.lua") end)
     if options.failWindUI then
@@ -514,7 +518,7 @@ local function eggCallsOnly(state)
     end
 end
 
-test("WindUI has exactly three tabs and both registered games can be joined", function()
+test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
     expect(s.window.Config.Title == "LUB" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
@@ -524,13 +528,16 @@ test("WindUI has exactly three tabs and both registered games can be joined", fu
     s:click("Games List")
     local entries = 0
     for _, control in ipairs(s.window.Tabs[2].Elements) do if control.Kind == "Button" then entries = entries + 1 end end
-    expect(entries == 2 and s:find("Chicken Farm").Desc:find("137233438285284", 1, true))
+    expect(entries == #GAME_LIST and s:find("Chicken Farm").Desc:find("137233438285284", 1, true))
     s:click("Sell Ores")
     expect(s.teleport == 122572082932179)
     s:advance(31)
     s:click("Chicken Farm")
     expect(s.window.Selected == 2 and s.teleport == 137233438285284, "Game button must join even from the same place")
     expect(s.teleportPlayer == s.services.Players.LocalPlayer, "Join must target the local player")
+    s:advance(31)
+    s:click("Fishing Chef")
+    expect(s.teleport == 88599461076137)
     local section = s:find("Auto Farm")
     expect(section.Parent == s.window.Tabs[1])
     expect(section.Elements[1].Title == "Autofarm" and section.Elements[2].Title == "Collect Eggs Only")
@@ -715,7 +722,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.4.1")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.5.0")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -952,6 +959,241 @@ test("unload cancels pending server lookup and delayed retries", function()
     retry:advance(0); retry:click("Unload LUB"); retry:advance(3)
     expect(#retry.joins == 1 and #retry.serverRequests == 1)
     for _, listener in ipairs(retry.services.TeleportService.TeleportInitFailed.listeners) do expect(not listener.connected) end
+end)
+
+-- Fishing Chef fixtures follow the Cobalt responses: Plates are data records,
+-- StoreFood takes only the owned NPC; the native controller supplies catches.
+local function chef(options)
+    options = options or {}
+    return setup({ place = 88599461076137, prepare = function(s, player, storage)
+        local g, node = s.globals, s.node
+        local cfMeta = { __mul = function(a) return a end }
+        g.CFrame.new = function(pos) return setmetatable({ Position = pos }, cfMeta) end
+        g.CFrame.Angles = function() return g.CFrame.new() end
+        g.Vector3.zero = g.Vector3.new(0, 0, 0)
+        g.require = function(module) return assert(module.Module) end
+        player:SetAttribute("ROPEN", not options.closed)
+        player.Backpack = node("Backpack")
+        player.Character = node("Model", "Character")
+        local hrp = node("Part", "HumanoidRootPart", player.Character)
+        hrp.CFrame = g.CFrame.new(g.Vector3.zero)
+        local hum = node("Humanoid", "Humanoid", player.Character)
+        hum.EquipTool = function(_, tool) tool.Parent = player.Character end
+        hum.UnequipTools = function()
+            for _, tool in ipairs(player.Character:GetChildren()) do
+                if tool:IsA("Tool") then tool.Parent = player.Backpack end
+            end
+        end
+        if not options.noRod then node("Tool", "Silver Rod", player.Backpack):SetAttribute("IsRod", true) end
+        local code = node("Folder", "Code", g.workspace)
+        local plots = node("Folder", "Plots", code)
+        local own = node("Model", player.Name, plots)
+        own:SetAttribute("Owner", player.Name)
+        node("Part", "BoatSpawnJetty", own).Position = g.Vector3.zero
+        local stall = node("Model", "STALL", own)
+        stall:SetAttribute("Level", 1)
+        local board = node("Part", "CuttingBoard", node("Model", "CookingStation", stall))
+        board.CFrame = g.CFrame.new(g.Vector3.zero)
+        local npcs = node("Folder", "ActiveNPCs", code)
+        function s:customer(ownerName, order)
+            local npc = node("Folder", "Customer", npcs)
+            node("StringValue", "Owner", npc).Value = ownerName
+            node("CFrameValue", "Location", npc).Value = g.CFrame.new(g.Vector3.zero)
+            npc:SetAttribute("Arrived", true)
+            npc:SetAttribute("Order", order or "Nigiri")
+            return npc
+        end
+        s.npc = s:customer(options.foreign and "OtherPlayer" or player.Name, options.order)
+        s.profile = { Fish = options.empty and {} or {{ID = 77, Name = "salmon", Weight = 4}},
+            FishCaught = 12, Plates = {}, FavoriteFish = options.favorite and {["77"] = true} or {},
+            FavoritePlates = {}, FishPond = {{ID = 999, Name = "tuna"}}, Level = 3,
+            NightMarket = {CustomersServedTotal = 0} }
+        s.items, s.cuts, s.dishes, s.feeds = {}, {}, {}, {}
+        local controller = { GetData = function(_, key) return s.profile[key] end,
+            IsDataLoaded = function() return true end }
+        local autoGeneration = 0
+        s.native = { IsAutoFishEnabled = function() return s.autoEnabled == true end,
+            SetAutoFishEnabled = function(_, enabled)
+                s.autoEnabled = enabled
+                autoGeneration += 1
+                local token = autoGeneration
+                if enabled then
+                    s.autoStarts = (s.autoStarts or 0) + 1
+                    g.task.spawn(function()
+                        g.task.wait(2)
+                        if token ~= autoGeneration or not s.autoEnabled or options.noCatch then return end
+                        s.profile.FishCaught += 1
+                        table.insert(s.profile.Fish, {ID = s.profile.FishCaught + 100, Name = "anchovy", Weight = 1})
+                    end)
+                end
+            end }
+        local packages = node("Folder", "Packages", storage)
+        local knit = node("ModuleScript", "Knit", packages)
+        knit.Module = {GetController = function(name) return name == "DataController" and controller or s.native end}
+        local fish = node("Folder", "Fish", node("Folder", "Services", knit))
+        local rf, re = node("Folder", "RF", fish), node("Folder", "RE", fish)
+        local shared = node("Folder", "Shared", storage)
+        node("ModuleScript", "FishingCastValidator", shared).Module = {
+            CanCastFromCharacter = function() return not options.invalidSpot end }
+        node("ModuleScript", "CookingConfig", node("Folder", "Modules", storage)).Module = {
+            Nigiri = {EstTime = 7, StallLevel = 1, Tool = "Nigiri Plate"},
+            Sashimi = {EstTime = 10, Sashimi = true, PlayerLevel = 3} }
+        local function remote(name, fn)
+            node("RemoteFunction", name, rf).InvokeServer = function(_, ...)
+                table.insert(s.calls, {action = name, at = s.now})
+                if options.delayRemote == name then g.task.wait(5) end
+                return fn(...)
+            end
+        end
+        remote("RequestRestaurauntData", function() return table.clone(s.items), {}, {}, s.profile.NightMarket end)
+        remote("StartCutSession", function() return options.badGoals and {0.8, "invalid"} or {0.8, 0.4} end)
+        node("RemoteEvent", "ServerAnims", re).FireServer = function(_, _, _, active) s.cutting = active end
+        node("RemoteEvent", "CutAction", re).FireServer = function(_, index, elapsed)
+            table.insert(s.cuts, {index=index, elapsed=elapsed})
+        end
+        remote("CutFish", function(id, score)
+            assert(#s.cuts >= 2 and s.cuts[#s.cuts].index == 2, "CutFish before cuts")
+            assert(score >= 1.3 and score <= 2, "Cut score inconsistent with recorded goals")
+            for i, item in ipairs(s.profile.Fish) do
+                if item.ID == id then
+                    assert(not s.profile.FavoriteFish[tostring(id)], "Favorite consumed")
+                    s.lastCut = id
+                    table.remove(s.profile.Fish, i)
+                    table.insert(s.items, {ID = 1, Name = "Fish Filet", CF = item.Name, CookedAt = 100, Data = 4, Amount = 1})
+                    return 1
+                end
+            end
+            error("Fish no longer exists")
+        end)
+        remote("Cook", function(name, item)
+            assert(name == "Nigiri" and table.find(s.items, item), "Cook must use current server item")
+            table.insert(s.dishes, {name=name, item=item, at=s.now})
+            table.remove(s.items, table.find(s.items, item))
+            if not options.rejectCook then
+                table.insert(s.profile.Plates, {Name=name, ID="P" .. #s.dishes, CF=item.CF, Value=330})
+            end
+            return "Cooked meal Nigiri"
+        end)
+        node("RemoteEvent", "StoreFood", re).FireServer = function(_, npc, ...)
+            assert(select("#", ...) == 0, "StoreFood only takes an NPC")
+            assert(npc.Owner.Value == player.Name, "Foreign customer")
+            assert(#s.profile.Plates > 0, "Serving without a plate")
+            table.insert(s.feeds, npc)
+            table.remove(s.profile.Plates, 1)
+            s.profile.NightMarket.CustomersServedTotal += 1
+            npc:SetAttribute("Despawn", true)
+        end
+    end })
+end
+
+test("Fishing Chef loads disabled and completes catch cut cook serve using server records", function()
+    local s = chef({empty=true})
+    expect(s.globals.LUBRuntime.fishingChef and #s.calls == 0)
+    s:click("Autofarm")
+    s:advance(19)
+    local state = s.globals.LUBRuntime.fishingChef
+    expect(state.caught >= 1 and state.cooked >= 1 and state.served == 1, state.phase)
+    expect(#s.feeds == 1 and #s.profile.FishPond == 1)
+    s:click("Unload LUB")
+    local count = #s.calls
+    s:advance(30)
+    expect(#s.calls == count and not s.autoEnabled and not s.cutting)
+end)
+
+test("Fishing Chef protects favorites and ignores foreign customers", function()
+    local s = chef({favorite=true, foreign=true})
+    s:click("Autofarm"); s:advance(20)
+    expect(s.profile.Fish[1].ID == 77 and s.lastCut ~= 77)
+    expect(#s.dishes == 1 and #s.feeds == 0)
+    s:advance(20)
+    expect(#s.dishes == 1, "Unbounded cooking with no customers")
+end)
+
+test("Fishing Chef never consumes or replaces a favorited plate", function()
+    local s = chef()
+    s.profile.Plates = {{Name="Nigiri", ID="P1"}}
+    s.profile.FavoritePlates.P1 = true
+    s:click("Autofarm"); s:advance(20)
+    expect(#s.feeds == 0 and #s.dishes == 0 and #s.calls == 0)
+end)
+
+test("Fishing Chef stops pending cutting and can restart without duplicate workers", function()
+    local s = chef()
+    s:click("Autofarm"); s:advance(0.7)
+    s:click("Autofarm")
+    local count = #s.calls
+    s:advance(5)
+    expect(#s.calls == count and #s.cuts == 0 and not s.cutting)
+    s:click("Autofarm"); s:click("Autofarm"); s:click("Autofarm")
+    s:advance(16)
+    expect(#s.dishes == 1 and #s.feeds == 1)
+end)
+
+test("Fishing Chef unload during a remote response prevents subsequent actions", function()
+    local s = chef({delayRemote="StartCutSession"})
+    s:click("Autofarm"); s:advance(1)
+    s:click("Unload LUB"); local count = #s.calls
+    s:advance(15)
+    expect(#s.calls == count and #s.cuts == 0 and #s.dishes == 0)
+end)
+
+test("Fishing Chef closed restaurant and unsupported recipes do not get served", function()
+    local s = chef({closed=true})
+    s:click("Autofarm"); s:advance(20)
+    expect(#s.calls == 0)
+    s.services.Players.LocalPlayer:SetAttribute("ROPEN", true)
+    s.npc:SetAttribute("Order", "Sashimi")
+    s:advance(20)
+    expect(#s.dishes == 1 and #s.feeds == 0 and s.dishes[1].name == "Nigiri")
+end)
+
+test("Fishing Chef rechecks owner after travelling to customer", function()
+    local s = chef()
+    s.profile.Plates = {{Name="Nigiri", ID="P1"}}
+    s:click("Autofarm"); s:advance(0.2)
+    s.npc.Owner.Value = "OtherPlayer"
+    s:advance(10)
+    expect(#s.feeds == 0)
+end)
+
+test("Fishing Chef malformed cutting targets fail closed", function()
+    local s = chef({badGoals=true})
+    s:click("Autofarm"); s:advance(15)
+    expect(not s:find("Autofarm").Value and #s.dishes == 0 and not s.lastCut)
+    expect(not s.cutting and s:find("Farm Status").Desc:find("Invalid cutting target",1,true))
+end)
+
+test("Fishing Chef rejected cooking is not counted as success or retried", function()
+    local s = chef({rejectCook=true})
+    s:click("Autofarm"); s:advance(30)
+    expect(#s.dishes == 1 and s.globals.LUBRuntime.fishingChef.cooked == 0 and #s.feeds == 0)
+    expect(not s:find("Autofarm").Value)
+end)
+
+test("Fishing Chef stops native fishing on disable and times out missing catches", function()
+    local s = chef({empty=true,noCatch=true})
+    s:click("Autofarm"); s:advance(3)
+    expect(s.autoEnabled)
+    s:click("Autofarm"); s:advance(5)
+    expect(not s.autoEnabled and s.profile.FishCaught == 12)
+    s:click("Autofarm"); s:advance(65)
+    expect(not s.autoEnabled and not s:find("Autofarm").Value)
+end)
+
+test("Fishing Chef detects missing rods and invalid fishing spots", function()
+    for _, options in ipairs({{empty=true,noRod=true},{empty=true,invalidSpot=true}}) do
+        local s = chef(options)
+        s:click("Autofarm"); s:advance(5)
+        expect(not s.autoEnabled and not s:find("Autofarm").Value and #s.dishes == 0)
+    end
+end)
+
+test("Fishing Chef cancels preparation when the character is replaced", function()
+    local s = chef()
+    s:click("Autofarm"); s:advance(0.7)
+    s.services.Players.LocalPlayer.Character = s.node("Model", "NewCharacter")
+    s:advance(10)
+    expect(not s:find("Autofarm").Value and #s.dishes == 0 and not s.cutting)
 end)
 
 print(string.format("%d behavioral tests passed", passed))
