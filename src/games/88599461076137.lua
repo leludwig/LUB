@@ -11,10 +11,15 @@ return function(tab)
     local validator = require(rs.Shared.FishingCastValidator)
     local recipes = require(rs.Modules.CookingConfig)
     local fishIndex = require(rs.Shared.FishIndex)
+    local rods = require(rs.Shared.RodData)[1]
+    local knives = require(rs.Shared.KnifeData)
+    local purchases = rs.Packages.Knit.Services.PurchaseController
     local remotes = rs.Packages.Knit.Services.Fish
     local enabled, generation, worker = false, 0, false
     local fishEnabled, fishGeneration, fishWorker = false, 0, false
     local fishingBusy
+    local gearBusy = false
+    local equipmentEnabled, equipmentGeneration, equipmentWorker = false, 0, false
     local mode, selectedRecipe = "farm", "Nigiri"
     local ownsFishing = false
     local castSession, fishingSpot
@@ -54,6 +59,11 @@ return function(tab)
     end
     local function check(token)
         if type(token) == "table" then
+            if token.kind == "equipment" then
+                if not runtime.alive or not equipmentEnabled or token.generation ~= equipmentGeneration then error(cancelled, 0) end
+                assert(player.Character == token.character, "Character changed; restart Auto Equipment.")
+                return
+            end
             if not runtime.alive or not fishEnabled or token.generation ~= fishGeneration then error(cancelled, 0) end
             assert(player.Character == token.character, "Character changed; restart Auto Fish after respawning.")
             return
@@ -167,15 +177,76 @@ return function(tab)
         local selected
         for _, plate in ipairs(data:GetData("Plates") or {}) do
             if plate.Name == name then
-                -- StoreFood chooses the plate on the server, so do not serve a
-                -- recipe with a protected plate when selection is ambiguous.
+                -- Keep protected recipes out of automatic serving even when
+                -- the game's plate tools do not expose a unique ID.
                 if favorite("FavoritePlates", plate.ID) then return nil, true end
                 if not requiredFish or plate.CF == requiredFish then selected = selected or plate end
             end
         end
         return selected, false
     end
-    local function serve(token, npc)
+    local function plateTool(plate)
+        local char = character()
+        local candidates = {}
+        for _, container in ipairs({char, player.Backpack}) do
+            for _, tool in ipairs(container:GetChildren()) do
+                if tool:IsA("Tool") and not tool:GetAttribute("IsFish") and not tool:GetAttribute("IsRod") and not tool:GetAttribute("IsKnife") then
+                    local id = tool:GetAttribute("PlateID") or tool:GetAttribute("ID")
+                    if id ~= nil and tostring(id) == tostring(plate.ID) then return tool end
+                    local cf = tool:GetAttribute("CF")
+                    local toolName = tool.Name
+                    if id == nil and (toolName == recipes[plate.Name].Tool or toolName == plate.Name
+                        or toolName == (fishIndex[plate.CF] and fishIndex[plate.CF].name or plate.CF) .. " " .. plate.Name)
+                        and (not cf or cf == plate.CF) then table.insert(candidates, tool) end
+                end
+            end
+        end
+        local matching = 0
+        for _, item in ipairs(data:GetData("Plates") or {}) do if item.Name == plate.Name then matching += 1 end end
+        if #candidates == 1 and (candidates[1]:GetAttribute("CF") == plate.CF or matching == 1) then
+            return candidates[1]
+        end
+    end
+    local function equipPlate(token, plate)
+        local tool = plateTool(plate)
+        if not tool then
+            -- The game's Plate interaction passes the physical plate to EquipPlate.
+            for _, object in ipairs(plot():GetDescendants()) do
+                local id = object:GetAttribute("PlateID") or object:GetAttribute("ID")
+                if id ~= nil and tostring(id) == tostring(plate.ID)
+                    and (object.Name == recipes[plate.Name].Tool or object.Name == plate.Name) then
+                    fire(token, "EquipPlate", object)
+                    break
+                end
+            end
+            for _ = 1, 30 do
+                pause(token, 0.1)
+                tool = plateTool(plate)
+                if tool then break end
+            end
+        end
+        if tool then
+            check(token)
+            local _, humanoid = character()
+            humanoid:EquipTool(tool)
+            return tool
+        end
+        error("Matching plate tool not found or ambiguous: " .. plate.Name .. " / " .. plate.CF)
+    end
+    local function withGear(token, action)
+        while gearBusy do pause(token, 0.1) end
+        check(token)
+        gearBusy = true
+        local ok, result = pcall(function()
+            while fishingBusy do pause(token, 0.1) end
+            check(token)
+            return action()
+        end)
+        gearBusy = false
+        if not ok then error(result, 0) end
+        return result
+    end
+    local function serveReady(token, npc)
         local name, requiredFish = order(npc)
         if not name then return false end
         show("Serving " .. name)
@@ -185,6 +256,11 @@ return function(tab)
             or npc:GetAttribute("Despawn") or npc:GetAttribute("WaitingForFood") == false
             or not orderValid(npc, name, requiredFish) or not plateFor(name, requiredFish) then return false end
         local before = (data:GetData("NightMarket") or {}).CustomersServedTotal or 0
+        local plate = plateFor(name, requiredFish)
+        local tool = equipPlate(token, plate)
+        pause(token, 0.2)
+        if not orderValid(npc, name, requiredFish) or not plateFor(name, requiredFish) then return false end
+        assert(tool.Parent == player.Character, "Plate was unequipped before serving")
         fire(token, "StoreFood", npc)
         for _ = 1, 30 do
             pause(token, 0.1)
@@ -192,6 +268,9 @@ return function(tab)
             if after > before then state.served += after - before; return true end
         end
         error("Server did not confirm serving " .. name .. ". Check customer availability and interaction distance.")
+    end
+    local function serve(token, npc)
+        return withGear(token, function() return serveReady(token, npc) end)
     end
     local function catch(token)
         show("Checking current fishing spot")
@@ -254,7 +333,7 @@ return function(tab)
         stopFishing()
     end
     local function runCatch(token)
-        while fishingBusy do pause(token, 0.1) end
+        while fishingBusy or gearBusy do pause(token, 0.1) end
         check(token)
         fishingBusy = token
         local ok, err = pcall(catch, token)
@@ -377,6 +456,85 @@ return function(tab)
         show(#waiting == 0 and "Waiting for a customer order" or "Waiting: orders locked, plates protected or serving pending")
         pause(token, 2)
     end
+    -- KnifeData has no shop category; special knives also contain nominal prices.
+    local cashKnives = { ["Starter knife"] = true, ["Riversteel Knife"] = true, ["Bamboo Blade"] = true,
+        ["Starlight Knife"] = true, ["Blizzard Knife"] = true, ["Moon Eclipse Knife"] = true }
+    local function better(a, b, kind)
+        if not a then return false end
+        if not b then return true end
+        local fields = kind == "Rod" and {"Strength", "Weight", "Luck", "Speed"} or {"MultiplierBonus", "CritChance", "CutWindow"}
+        for _, key in ipairs(fields) do
+            local av, bv = (a.Stats or {})[key] or 0, (b.Stats or {})[key] or 0
+            if av ~= bv then return av > bv end
+        end
+        return false
+    end
+    local function hasEquipment(kind, name)
+        for _, item in pairs(data:GetData(kind == "Rod" and "Rods" or "Knives") or {}) do
+            if item.Name == name then return true end
+        end
+        return false
+    end
+    local function upgradeEquipment(token, kind, catalog)
+        check(token)
+        local owned, candidate
+        local cash = data:GetData("Cash") or 0
+        for _, item in ipairs(catalog) do
+            if hasEquipment(kind, item.Name) and better(item, owned, kind) then owned = item end
+            local shop = kind == "Rod" and item.Category == "Shop" or kind == "Knife" and cashKnives[item.Name]
+            if shop and not item.Hidden and not item.ShopHidden and type(item.Price) == "number"
+                and item.Price > 0 and item.Price <= cash and better(item, candidate, kind) then candidate = item end
+        end
+        if better(candidate, owned, kind) then
+            check(token)
+            show("Buying " .. candidate.Name)
+            local bought = purchases.RF["Buy" .. kind]:InvokeServer(candidate.Name)
+            check(token)
+            assert(bought ~= false, "Purchase rejected: " .. candidate.Name)
+            for _ = 1, 30 do
+                if hasEquipment(kind, candidate.Name) then break end
+                pause(token, 0.1)
+            end
+            assert(hasEquipment(kind, candidate.Name), "Purchase not confirmed: " .. candidate.Name)
+            owned = candidate
+        end
+        if owned and (data:GetData("Equipped") or {})[kind] ~= owned.Name then
+            check(token)
+            purchases.RE["Equip" .. kind]:FireServer(owned.Name)
+            for _ = 1, 30 do
+                if (data:GetData("Equipped") or {})[kind] == owned.Name then break end
+                pause(token, 0.1)
+            end
+            assert((data:GetData("Equipped") or {})[kind] == owned.Name, "Equipment not confirmed: " .. owned.Name)
+        end
+    end
+    function state.setEquipment(value)
+        equipmentEnabled = value == true and runtime.alive
+        equipmentGeneration += 1
+        if toggles.equipment then toggles.equipment:Set(equipmentEnabled, false) end
+        if equipmentWorker or not equipmentEnabled then return end
+        equipmentWorker = true
+        task.spawn(function()
+            while equipmentEnabled and runtime.alive do
+                local token = {kind = "equipment", generation = equipmentGeneration, character = player.Character}
+                local ok, err = pcall(function()
+                    assert(data:IsDataLoaded(), "Player data is not ready.")
+                    character()
+                    withGear(token, function()
+                        upgradeEquipment(token, "Rod", rods)
+                        upgradeEquipment(token, "Knife", knives)
+                    end)
+                    pause(token, 5)
+                end)
+                if not ok and err ~= cancelled and equipmentGeneration == token.generation and runtime.alive then
+                    state.setEquipment(false)
+                    show("Auto Equipment stopped: " .. tostring(err))
+                    warn("LUB Auto Equipment: " .. tostring(err))
+                end
+            end
+            equipmentWorker = false
+        end)
+    end
     function state.setMode(nextMode, value)
         assert(nextMode == "farm" or nextMode == "fish" or nextMode == "cook", "Invalid mode")
         if nextMode == "fish" then
@@ -412,7 +570,7 @@ return function(tab)
         state.mode = enabled and mode or nil
         generation += 1
         for key, control in pairs(toggles) do
-            if key ~= "fish" then control:Set(enabled and key == mode, false) end
+            if key == "farm" or key == "cook" then control:Set(enabled and key == mode, false) end
         end
         show(enabled and "Starting" or "Stopped")
         if worker or not enabled then return end
@@ -437,6 +595,8 @@ return function(tab)
         generation += 1
         fishEnabled = false
         fishGeneration += 1
+        equipmentEnabled = false
+        equipmentGeneration += 1
         stopFishing()
     end)
     local section = tab:Section({Title = "Auto Farm", Opened = true})
@@ -451,6 +611,7 @@ return function(tab)
         if enabled and mode == "cook" then state.setMode("cook", true) end
     end})
     toggles.cook = section:Toggle({Title = "Auto Cook", Value = false, Callback = function(value) state.setMode("cook", value) end})
+    toggles.equipment = section:Toggle({Title = "Auto Equipment", Value = false, Callback = state.setEquipment})
     status = section:Paragraph({Title = "Farm Status", Desc = "Stopped"})
     section:Button({Title = "Set fishing spot", Desc = "Save your current position and facing direction for this session.", Callback = function()
         if not runtime.alive then return end

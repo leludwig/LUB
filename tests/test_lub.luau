@@ -540,7 +540,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.9.1" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.10.0" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -742,7 +742,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.9.1")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.10.0")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -999,7 +999,7 @@ local function chef(options)
         hrp.CFrame = g.CFrame.new(g.Vector3.zero)
         hrp.NoMovementGuard = options.noMovement
         local hum = node("Humanoid", "Humanoid", player.Character)
-        hum.EquipTool = function(_, tool) tool.Parent = player.Character end
+        hum.EquipTool = function(_, tool) hum:UnequipTools(); tool.Parent = player.Character end
         hum.UnequipTools = function()
             for _, tool in ipairs(player.Character:GetChildren()) do
                 if tool:IsA("Tool") then tool.Parent = player.Backpack end
@@ -1028,7 +1028,16 @@ local function chef(options)
         s.profile = { Fish = options.empty and {} or {{ID = 77, Name = "salmon", Weight = 4}},
             FishCaught = 12, Plates = {}, FavoriteFish = options.favorite and {["77"] = true} or {},
             FavoritePlates = {}, FishPond = {{ID = 999, Name = "tuna"}}, Level = 3,
-            CompletedQuests = {}, NightMarket = {CustomersServedTotal = 0} }
+            CompletedQuests = {}, NightMarket = {CustomersServedTotal = 0}, Cash = 204483,
+            Rods = {{Name="Gold Rod"}}, Knives = {{Name="Riversteel Knife"}},
+            Equipped = {Rod="Gold Rod", Knife="Riversteel Knife"} }
+        function s:addPlate(plate)
+            table.insert(self.profile.Plates, plate)
+            local tool = node("Tool", plate.Name .. " Plate", player.Backpack)
+            tool:SetAttribute("PlateID", plate.ID)
+            tool:SetAttribute("CF", plate.CF)
+            return tool
+        end
         s.items, s.cuts, s.dishes, s.feeds = {}, {}, {}, {}
         local controller = { GetData = function(_, key) return s.profile[key] end,
             IsDataLoaded = function() return true end }
@@ -1058,6 +1067,45 @@ local function chef(options)
         local fish = node("Folder", "Fish", node("Folder", "Services", knit))
         local rf, re = node("Folder", "RF", fish), node("Folder", "RE", fish)
         local shared = node("Folder", "Shared", storage)
+        local rodData = {
+            {Name="Gold Rod", Category="Shop", Price=40000, Stats={Strength=35}},
+            {Name="Thundering Bolt", Category="Shop", Price=80000, Stats={Strength=50}},
+            {Name="Samurai's Katana", Category="Shop", Price=220000, Stats={Strength=60}},
+            {Name="Quest Rod", Category="Quest", Price=0, Stats={Strength=90}},
+            {Name="Robux Rod", Category="Gamepass", Price=499, Stats={Strength=100}},
+            {Name="Hidden Rod", Category="Hidden", Price=10, Stats={Strength=110}} }
+        local knifeData = {
+            {Name="Riversteel Knife", Price=20000, Stats={MultiplierBonus=0.15}},
+            {Name="Bamboo Blade", Price=100000, Stats={MultiplierBonus=0.25}},
+            {Name="Starlight Knife", Price=500000, Stats={MultiplierBonus=0.35}},
+            {Name="Green Dragon Knife", Price=10, Stats={MultiplierBonus=0.6}} }
+        node("ModuleScript", "RodData", shared).Module = {rodData}
+        node("ModuleScript", "KnifeData", shared).Module = knifeData
+        local purchase = node("Folder", "PurchaseController", knit.Services)
+        local buy, equip = node("Folder", "RF", purchase), node("Folder", "RE", purchase)
+        s.buys, s.equips = {}, {}
+        for _, kind in ipairs({"Rod", "Knife"}) do
+            node("RemoteFunction", "Buy" .. kind, buy).InvokeServer = function(_, name)
+                assert(not s.castPending, "Purchase during active fishing cast")
+                table.insert(s.buys, name)
+                if options.delayBuy then g.task.wait(5) end
+                if options.rejectBuy then return false end
+                for _, item in ipairs(kind == "Rod" and rodData or knifeData) do
+                    if item.Name == name then
+                        assert(s.profile.Cash >= item.Price, "Overspending cash")
+                        s.profile.Cash -= item.Price
+                        table.insert(s.profile[kind == "Rod" and "Rods" or "Knives"], {Name=name})
+                        return true
+                    end
+                end
+                error("Unknown equipment")
+            end
+            node("RemoteEvent", "Equip" .. kind, equip).FireServer = function(_, name)
+                assert(not s.castPending, "Equipment switched during active fishing cast")
+                table.insert(s.equips, name)
+                s.profile.Equipped[kind] = name
+            end
+        end
         node("ModuleScript", "FishIndex", shared).Module = {
             salmon = {name="Salmon"}, tuna = {name="Tuna"}, bluefin_tuna = {name="Bluefin Tuna"}, anchovy = {name="Anchovy"} }
         node("ModuleScript", "FishingCastValidator", shared).Module = {
@@ -1126,7 +1174,7 @@ local function chef(options)
             table.insert(s.dishes, {name=name, item=item, at=s.now})
             table.remove(s.items, table.find(s.items, item))
             if not options.rejectCook then
-                table.insert(s.profile.Plates, {Name=name, ID="P" .. #s.dishes, CF=item.CF, Value=330, Data=options.dishQuality or item.Data})
+                s:addPlate({Name=name, ID="P" .. #s.dishes, CF=item.CF, Value=330, Data=options.dishQuality or item.Data})
             end
             return "Cooked meal " .. name
         end)
@@ -1139,6 +1187,10 @@ local function chef(options)
                 if plate.Name == npc:GetAttribute("Order") then matched = index; break end
             end
             assert(matched, "Serving without the ordered plate")
+            local held = player.Character:FindFirstChildOfClass("Tool")
+            assert(held and held:GetAttribute("PlateID") == s.profile.Plates[matched].ID, "A plate must be equipped")
+            assert(not s.castPending, "Serving during an active cast")
+            held:Destroy()
             table.insert(s.feeds, npc)
             table.remove(s.profile.Plates, matched)
             s.profile.NightMarket.CustomersServedTotal += 1
@@ -1354,7 +1406,7 @@ end)
 
 test("Fishing Chef rejected remote serving stops without movement or repeated requests", function()
     local s = chef({rejectServe=true, noMovement=true})
-    s.profile.Plates = {{Name="Nigiri", ID="P1"}}
+    s:addPlate({Name="Nigiri", ID="P1", CF="salmon"})
     s:click("Autofarm"); s:advance(15)
     expect(not s:find("Autofarm").Value and #s.profile.Plates == 1)
     expect(s.globals.LUBRuntime.fishingChef.phase:find("Server did not confirm serving", 1, true))
@@ -1501,6 +1553,8 @@ test("Fishing Chef prepares the fish requested by the customer instead of existi
     local re = s.services.ReplicatedStorage.Packages.Knit.Services.Fish.RE
     re.StoreFood.FireServer = function(_, npc)
         expect(npc == s.npc)
+        local held = s.services.Players.LocalPlayer.Character:FindFirstChildOfClass("Tool")
+        expect(held and held:GetAttribute("CF") == "tuna", "Wrong fish equipped")
         local index
         for i, plate in ipairs(s.profile.Plates) do if plate.Name == "Sushi" and plate.CF == "tuna" then index = i end end
         expect(index, "Attempted to serve the wrong fish")
@@ -1564,6 +1618,93 @@ test("Fishing Chef a failed kitchen mode does not stop Auto Fish", function()
     s:click("Auto Fish"); s:click("Auto Cook"); s:advance(12)
     expect(not s:find("Auto Cook").Value and s:find("Auto Fish").Value)
     expect(s.globals.LUBRuntime.fishingChef.caught >= 2)
+end)
+
+test("Fishing Chef equips the plate after the pending cast and resumes fishing", function()
+    local s = chef()
+    s:click("Auto Fish"); s:click("Autofarm"); s:advance(4)
+    expect(s.castPending and #s.dishes == 1 and #s.feeds == 0)
+    s:advance(8)
+    expect(#s.feeds == 1 and s.castCount >= 2 and s:find("Auto Fish").Value)
+end)
+
+test("Fishing Chef retrieves a physical plate through the recorded interaction", function()
+    local s = chef()
+    local tool = s:addPlate({ID="P1", Name="Nigiri", CF="salmon"})
+    tool.Parent = nil
+    local own = s.globals.workspace.Code.Plots.TestPlayer
+    local plate = s.node("Model", "Nigiri Plate", own)
+    plate:SetAttribute("ID", "P1")
+    local re = s.services.ReplicatedStorage.Packages.Knit.Services.Fish.RE
+    s.node("RemoteEvent", "EquipPlate", re).FireServer = function(_, object)
+        expect(object == plate, "EquipPlate needs the physical instance")
+        tool.Parent = s.services.Players.LocalPlayer.Backpack
+    end
+    s:click("Autofarm"); s:advance(5)
+    expect(#s.feeds == 1 and #s.dishes == 0)
+end)
+
+test("Fishing Chef will not serve an unrelated or missing plate tool", function()
+    local s = chef()
+    s.profile.Plates = {{ID="P1", Name="Nigiri", CF="salmon"}}
+    local fish = s.node("Tool", "Nigiri Plate", s.services.Players.LocalPlayer.Backpack)
+    fish:SetAttribute("IsFish", true)
+    fish:SetAttribute("ID", "P1")
+    s:click("Autofarm"); s:advance(6)
+    expect(#s.feeds == 0 and not s:find("Autofarm").Value)
+    expect(s.globals.LUBRuntime.fishingChef.phase:find("Matching plate tool", 1, true))
+end)
+
+test("Fishing Chef does not substitute a different plate ID with the same name", function()
+    local s = chef()
+    s.profile.Plates = {{ID="P1", Name="Nigiri", CF="salmon"}}
+    local tool = s.node("Tool", "Nigiri Plate", s.services.Players.LocalPlayer.Backpack)
+    tool:SetAttribute("PlateID", "another-plate")
+    tool:SetAttribute("CF", "salmon")
+    s:click("Autofarm"); s:advance(6)
+    expect(#s.feeds == 0 and not s:find("Autofarm").Value)
+end)
+
+test("Fishing Chef equipment buys best affordable cash upgrades rod first without repeats", function()
+    local s = chef()
+    expect(not s:find("Auto Equipment").Value and #s.buys == 0)
+    s:click("Auto Equipment"); s:advance(16)
+    expect(#s.buys == 2 and s.buys[1] == "Thundering Bolt" and s.buys[2] == "Bamboo Blade")
+    expect(s.profile.Cash == 24483 and #s.equips == 2)
+    expect(s.profile.Equipped.Rod == "Thundering Bolt" and s.profile.Equipped.Knife == "Bamboo Blade")
+    s.profile.Cash = 230000
+    s:advance(5)
+    expect(#s.buys == 3 and s.buys[3] == "Samurai's Katana" and s.profile.Cash == 10000)
+end)
+
+test("Fishing Chef keeps superior owned special equipment and never buys special offers", function()
+    local s = chef()
+    table.insert(s.profile.Rods, {Name="Quest Rod"})
+    table.insert(s.profile.Knives, {Name="Green Dragon Knife"})
+    s:click("Auto Equipment"); s:advance(12)
+    expect(#s.buys == 0 and s.profile.Cash == 204483)
+    expect(s.profile.Equipped.Rod == "Quest Rod" and s.profile.Equipped.Knife == "Green Dragon Knife")
+    local poor = chef()
+    poor.profile.Cash = 1000
+    poor:click("Auto Equipment"); poor:advance(12)
+    expect(#poor.buys == 0 and #poor.equips == 0)
+end)
+
+test("Fishing Chef rejected equipment purchases stop only equipment after the cast", function()
+    local s = chef({rejectBuy=true})
+    s:click("Auto Fish"); s:advance(1); s:click("Auto Equipment"); s:advance(1)
+    expect(#s.buys == 0)
+    s:advance(12)
+    expect(#s.buys == 1 and #s.equips == 0 and not s:find("Auto Equipment").Value)
+    expect(s:find("Auto Fish").Value and s.castCount >= 2)
+end)
+
+test("Fishing Chef unload during buying prevents equipping and further purchases", function()
+    local s = chef({delayBuy=true})
+    s:click("Auto Equipment"); s:advance(1)
+    expect(#s.buys == 1)
+    s:click("Unload LUB"); s:advance(15)
+    expect(#s.buys == 1 and #s.equips == 0)
 end)
 
 print(string.format("%d behavioral tests passed", passed))
