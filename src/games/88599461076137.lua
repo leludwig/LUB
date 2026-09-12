@@ -6,6 +6,7 @@ return function(tab)
     local rs = game:GetService("ReplicatedStorage")
     local knit = require(rs.Packages.Knit)
     local fishing = knit.GetController("FishingController")
+    local backpack = knit.GetController("Backpack")
     local data = knit.GetController("DataController")
     local validator = require(rs.Shared.FishingCastValidator)
     local recipes = require(rs.Modules.CookingConfig)
@@ -21,10 +22,20 @@ return function(tab)
     local state = { phase = "Stopped", caught = 0, cooked = 0, served = 0 }
     runtime.fishingChef = state
     local cancelled = {}
+    local function restoreBackpack()
+        player:SetAttribute("Backpack", true)
+        pcall(function() backpack:SetBackpackEnabled(true) end)
+    end
+    -- A direct CastRequest triggers the game's hide action without its normal
+    -- minigame completion path. Also repair a bar hidden by an earlier run.
+    restoreBackpack()
     runtime.track(remotes.RE.CastResponse.OnClientEvent:Connect(function(response)
         if castSession and castSession.token == generation then
             castSession.received = true
             castSession.response = response
+            task.defer(function()
+                if runtime.alive and ownsFishing then restoreBackpack() end
+            end)
         end
     end))
 
@@ -64,6 +75,7 @@ return function(tab)
         return found
     end
     local function stopFishing()
+        local restore = ownsFishing or castSession ~= nil
         if castSession then
             castSession = nil
             pcall(function() remotes.RF.MinigameResolved:InvokeServer(false) end)
@@ -139,6 +151,7 @@ return function(tab)
             local after = (data:GetData("NightMarket") or {}).CustomersServedTotal or 0
             if after > before then state.served += after - before; return true end
         end
+        if restore then restoreBackpack() end
         error("Server did not confirm serving " .. name .. ". Check customer availability and interaction distance.")
     end
     local function catch(token)
@@ -180,7 +193,12 @@ return function(tab)
             pause(token, 0.1)
         end
         local gained = (data:GetData("FishCaught") or 0) - before
-        assert(gained > 0, "Server did not confirm the catch. Increase Resolve delay and retry.")
+        if gained <= 0 then
+            stopFishing()
+            show("Catch not confirmed; casting again")
+            pause(token, 1)
+            return
+        end
         castSession = nil
         state.caught += gained
         stopFishing()
@@ -209,15 +227,16 @@ return function(tab)
             score = 0
             for index, goal in ipairs(goals) do
                 assert(type(goal) == "number" and goal >= 0 and goal <= 1, "Invalid cutting target.")
-                -- Normal cutter: cursor = (sin(2*t)+1)/2. Use the descending pass.
-                local duration = (math.pi - math.asin(2 * goal - 1)) / 2
+                -- Normal cutter: cursor = (sin(2*t)+1)/2. Earliest nonnegative hit.
+                local phase = math.asin(2 * goal - 1)
+                local duration = (phase >= 0 and phase or math.pi - phase) / 2
                 local started = os.clock()
                 pause(token, duration)
                 local elapsed = os.clock() - started
                 local cursor = (math.sin(2 * elapsed) + 1) / 2
                 score += math.clamp(1 - math.abs(goal - cursor) / 0.2, 0, 1)
                 fire(token, "CutAction", index, elapsed)
-                pause(token, 0.25)
+                if index < #goals then pause(token, 0.05) end
             end
             checkOrder()
             if favorite("FavoriteFish", item.ID) then return false end

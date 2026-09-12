@@ -523,7 +523,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.7.0" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.7.1" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -725,7 +725,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.7.0")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.7.1")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -1033,7 +1033,11 @@ local function chef(options)
             end }
         local packages = node("Folder", "Packages", storage)
         local knit = node("ModuleScript", "Knit", packages)
-        knit.Module = {GetController = function(name) return name == "DataController" and controller or s.native end}
+        local backpack = {SetBackpackEnabled = function(_, enabled) s.backpackEnabled = enabled end}
+        knit.Module = {GetController = function(name)
+            if name == "Backpack" then return backpack end
+            return name == "DataController" and controller or s.native
+        end}
         local fish = node("Folder", "Fish", node("Folder", "Services", knit))
         local rf, re = node("Folder", "RF", fish), node("Folder", "RE", fish)
         local shared = node("Folder", "Shared", storage)
@@ -1059,6 +1063,9 @@ local function chef(options)
             s.cutting = active
         end
         local castResponse = node("RemoteEvent", "CastResponse", re)
+        castResponse.OnClientEvent:Connect(function(response)
+            if response then s.backpackEnabled = false; player:SetAttribute("Backpack", false) end
+        end)
         remote("CastRequest", function(power, ...)
             assert(select("#", ...) == 0 and power > 0 and power <= 1, "CastRequest only accepts cast strength")
             s.castPending = true
@@ -1082,6 +1089,7 @@ local function chef(options)
         remote("CutFish", function(id, score)
             assert(#s.cuts >= 2 and s.cuts[#s.cuts].index == 2, "CutFish before cuts")
             assert(score >= 1.3 and score <= 2, "Cut score inconsistent with recorded goals")
+            s.lastScore = score
             for i, item in ipairs(s.profile.Fish) do
                 if item.ID == id then
                     assert(not s.profile.FavoriteFish[tostring(id)], "Favorite consumed")
@@ -1155,8 +1163,9 @@ test("Fishing Chef stops pending cutting and can restart without duplicate worke
     s:click("Autofarm"); s:advance(0.7)
     s:click("Autofarm")
     local count = #s.calls
+    local cuts = #s.cuts
     s:advance(5)
-    expect(#s.calls == count and #s.cuts == 0 and not s.cutting)
+    expect(#s.calls == count and #s.cuts == cuts and not s.lastCut and not s.cutting)
     s:click("Autofarm"); s:click("Autofarm"); s:click("Autofarm")
     s:advance(16)
     expect(#s.dishes == 1 and #s.feeds == 1)
@@ -1203,14 +1212,14 @@ test("Fishing Chef rejected cooking is not counted as success or retried", funct
     expect(not s:find("Autofarm").Value)
 end)
 
-test("Fishing Chef stops remote fishing on disable and times out missing catches", function()
+test("Fishing Chef retries missing catches and still stops on disable", function()
     local s = chef({empty=true,noCatch=true})
     s:click("Autofarm"); s:advance(3)
     expect(s.castCount == 1 and not s.autoEnabled)
     s:click("Autofarm"); s:advance(5)
     expect(not s.autoEnabled and s.profile.FishCaught == 12)
     s:click("Autofarm"); s:advance(65)
-    expect(not s.autoEnabled and not s:find("Autofarm").Value)
+    expect(not s.autoEnabled and s:find("Autofarm").Value and s.castCount > 2)
 end)
 
 test("Fishing Chef detects missing rods and invalid fishing spots", function()
@@ -1403,6 +1412,49 @@ test("Fishing Chef menu has only status text below its controls", function()
     for _, control in ipairs(s.controls) do
         expect(control.Title ~= "Full routine" and control.Title ~= "Perfect cooking" and control.Title ~= "Remote fishing")
     end
+end)
+
+test("Fishing Chef recovers after a failed catch in both fishing modes", function()
+    for _, mode in ipairs({"Auto Fish", "Autofarm"}) do
+        local options = {empty=true, noCatch=true}
+        local s = chef(options)
+        s:click(mode); s:advance(6)
+        expect(s:find(mode).Value and s.globals.LUBRuntime.fishingChef.caught == 0)
+        expect(not s.castPending, "Failed cast must be cancelled before retry")
+        options.noCatch = false
+        s:advance(12)
+        expect(s.castCount >= 2 and s.globals.LUBRuntime.fishingChef.caught > 0)
+        if mode == "Autofarm" then expect(#s.feeds == 1) end
+        s:click(mode); local count = s.castCount; s:advance(10)
+        expect(s.castCount == count and not s:find(mode).Value)
+    end
+end)
+
+test("Fishing Chef restores inventory bar during casting and on success failure or unload", function()
+    for _, options in ipairs({{}, {noCatch=true}}) do
+        local s = chef(options)
+        expect(s.backpackEnabled)
+        s:find("Resolve delay"):Set(3)
+        s:click("Auto Fish"); s:advance(1)
+        expect(s.backpackEnabled and s.services.Players.LocalPlayer:GetAttribute("Backpack"))
+        s:advance(8)
+        expect(s.backpackEnabled)
+        s:click("Unload LUB"); s:advance(3)
+        expect(s.backpackEnabled and not s.castPending)
+    end
+end)
+
+test("Fishing Chef cuts on the earliest target pass with measured Perfect quality", function()
+    local s = chef()
+    s:click("Auto Cook"); s:advance(2.3)
+    expect(#s.dishes == 1 and s.dishes[1].at < 2.1)
+    expect(s.cuts[1].elapsed < 0.4 and s.cuts[2].elapsed < 1.8)
+    local measured = 0
+    for index, goal in ipairs({0.8, 0.4}) do
+        local cursor = (math.sin(2 * s.cuts[index].elapsed) + 1) / 2
+        measured += math.clamp(1 - math.abs(goal - cursor) / 0.2, 0, 1)
+    end
+    expect(measured >= 1.3 and math.abs(s.lastScore - measured) < 0.0001)
 end)
 
 print(string.format("%d behavioral tests passed", passed))
