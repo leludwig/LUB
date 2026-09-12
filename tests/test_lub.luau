@@ -540,7 +540,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.10.0" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.10.1" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -736,13 +736,33 @@ test("unknown games and unavailable/corrupt config retain working settings", fun
     expect(#recovered.warnings == 1)
 end)
 
+test("restricted kick detection does not prevent startup farming rerun or cleanup", function()
+    for _, failLookup in ipairs({false, true}) do
+        local s = setup({config={settings={auto_rejoin_on_kick=true}}, prepare=function(state)
+            local message = "The current thread cannot connect 'ErrorMessageChanged' (lacking capability RobloxScript)"
+            state.services.GuiService = if failLookup then setmetatable({}, {__index=function() error(message) end})
+                else {ErrorMessageChanged={Connect=function() error(message) end}}
+        end})
+        local runtime = s.globals.LUBRuntime
+        expect(runtime.alive and runtime.window and not runtime.canAutoRejoin)
+        expect(not pcall(function() s:find("Auto Rejoin (when kicked)") end))
+        expect(runtime.config.settings.auto_rejoin_on_kick, "Preserve preference for a compatible executor")
+        s:load("src/init.lua")
+        expect(s.globals.LUBRuntime == runtime)
+        s:click("Collect Eggs Only"); s:egg("available"); s:advance(2)
+        expect(#s.calls == 1)
+        s:click("Unload LUB")
+        expect(not runtime.alive)
+    end
+end)
+
 test("old UI upgrades, old game settings are removed, settings restore", function()
     local s = setup({ legacy = true, config = {
         settings = { disable_3d_rendering = true },
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.10.0")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.10.1")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)

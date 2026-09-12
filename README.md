@@ -48,7 +48,7 @@ Für die Prompt-Aktionen benötigt die Ausführungsumgebung `fireproximityprompt
 
 ## Fishing Chef · 88599461076137
 
-Version 2.10.0 bietet unter **Game → Auto Farm** unabhängig zuschaltbares Auto Fish. Es läuft parallel zu Auto Cook oder Autofarm. Nur Auto Cook und Autofarm schließen sich gegenseitig aus. Alle Schalter starten ausgeschaltet; das Abschalten eines Bereichs lässt den anderen weiterlaufen. Unload LUB beendet alle Abläufe.
+Version 2.10.1 bietet unter **Game → Auto Farm** unabhängig zuschaltbares Auto Fish. Es läuft parallel zu Auto Cook oder Autofarm. Nur Auto Cook und Autofarm schließen sich gegenseitig aus. Alle Schalter starten ausgeschaltet; das Abschalten eines Bereichs lässt den anderen weiterlaufen. Unload LUB beendet alle Abläufe.
 
 - **Autofarm:** prüft zuerst eigene wartende Kunden und deren Bestellung. Passende fertige Gerichte werden serviert; andernfalls wird das bestellte Gericht zubereitet und bei fehlendem Fisch geangelt. Ohne Kundenbestellung wird nichts auf Vorrat gekocht. Das Restaurant muss geöffnet sein.
 - **Auto Fish:** angelt ausschließlich, auch bei geschlossenem Restaurant. Ein gültiger aktueller Angelplatz wird direkt genutzt; eine Angel muss im Rucksack oder ausgerüstet sein.
@@ -104,7 +104,7 @@ Bei einem unbekannten Spiel zeigt der Game-Tab **Game not supported** mit der ak
 
 WindUI lässt sich mit **Insert (Einfg)** aus- und einblenden. Die kleine **LUB**-Schaltfläche öffnet das Fenster ebenfalls.
 
-Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Chicken Farm und Sell Ores haben getrennte gespeicherte Einstellungen; Fishing Chef wird pro Sitzung gestartet; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.10.0; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
+Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Chicken Farm und Sell Ores haben getrennte gespeicherte Einstellungen; Fishing Chef wird pro Sitzung gestartet; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.10.1; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
 
 Optional kann die Startdatei lokal als `LUB/LUB.lua` im Workspace der Ausführungsumgebung abgelegt und so ausgeführt werden:
 
@@ -138,7 +138,7 @@ python tools/test.py --luau-dir .tools/luau
 
 Der Build braucht nur Python 3. Für die Tests werden `luau` und `luau-compile` aus den [offiziellen Luau-Releases](https://github.com/luau-lang/luau/releases) benötigt. Der Build prüft eindeutige Place-IDs und die Übereinstimmung zwischen Games List und den enthaltenen Spielskripten.
 
-Geprüft werden sieben Luau-Dateien einschließlich Startdatei und 84 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Chicken-Farm-Ablauf, automatische Basiswahl, Sell-Ores-Prompt-Reihenfolge und Wartezeiten, Roll-Käufe, Verkauf, verfügbare Belohnungen, Upgrade-Käufe, Ofen-Durchsatz und Erzentscheidungen, Entladen sowie Spielbeitritt, Insert-Taste, getrennte Einstellungen, unbekannte Spiele und Versionswechsel. Die Beitrittstests decken aktuelle/volle Server, Pagination, HTTP-Fehler, begrenzte Wiederholungen, Zugriffsablehnungen, Roblox-Dialog, Mehrfachklicks, Timeouts und Abbruch beim Entladen ab. Die öffentlichen Serverlisten und die Zuordnung der Startplätze wurden über die Roblox-API geprüft. Die Fishing-Chef-Tests prüfen zusätzlich die Kundenbestellungen, Rezeptauswahl, getrennte Modi, Rezeptfreischaltungen, benötigten Fischarten, Favoriten und Eigentümer, abgeschaltete Restaurants, Abbrüche, Versionsschutz durch Laufkennungen, verzögerte Antworten, Fehler und Zeitlimits. Die Darstellung und der vollständige Restaurantablauf wurden nicht live verifiziert; der oben beschriebene einzelne Angeltest ist davon ausgenommen.
+Geprüft werden sieben Luau-Dateien einschließlich Startdatei und 85 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Chicken-Farm-Ablauf, automatische Basiswahl, Sell-Ores-Prompt-Reihenfolge und Wartezeiten, Roll-Käufe, Verkauf, verfügbare Belohnungen, Upgrade-Käufe, Ofen-Durchsatz und Erzentscheidungen, Entladen sowie Spielbeitritt, Insert-Taste, getrennte Einstellungen, unbekannte Spiele und Versionswechsel. Die Beitrittstests decken aktuelle/volle Server, Pagination, HTTP-Fehler, begrenzte Wiederholungen, Zugriffsablehnungen, Roblox-Dialog, Mehrfachklicks, Timeouts und Abbruch beim Entladen ab. Die öffentlichen Serverlisten und die Zuordnung der Startplätze wurden über die Roblox-API geprüft. Die Fishing-Chef-Tests prüfen zusätzlich die Kundenbestellungen, Rezeptauswahl, getrennte Modi, Rezeptfreischaltungen, benötigten Fischarten, Favoriten und Eigentümer, abgeschaltete Restaurants, Abbrüche, Versionsschutz durch Laufkennungen, verzögerte Antworten, Fehler und Zeitlimits. Die Darstellung und der vollständige Restaurantablauf wurden nicht live verifiziert; der oben beschriebene einzelne Angeltest ist davon ausgenommen.
 
 ## Herkunft
 
@@ -153,3 +153,5 @@ WindUI-Cleanup ab 2.7.2: Fehler der Schließanimation unter eingeschränkten Exe
 Version 2.7.3 setzt die WindUI-GUI-Wurzeln über SetParent vor dem Fensteraufbau in PlayerGui. Damit verwendet LUB für seine Oberfläche keinen geschützten Executor-UI-Container mehr. Die Tests prüfen die Zuordnung vor CreateWindow; die betroffene Live-Sitzung konnte hier nicht geprüft werden.
 
 Ab 2.9.1 sendet jeder Angelwurf CastRequest(1), entsprechend dem Maximum der spielinternen Ladekurve (100 Prozent, Perfect). Das gilt für Auto Fish und das bedarfsabhängige Angeln im Autofarm. Der Fang muss weiterhin vom Server bestätigt werden; ein perfekter Wurf erhöht nicht die Stärke der ausgerüsteten Angel.
+
+Version 2.10.1 schützt die optionale Kick-Erkennung vor fehlenden Executor-Berechtigungen für GuiService.ErrorMessageChanged. Ein gesperrter Event-Zugriff oder Connect-Aufruf verhindert den Start nicht mehr. Auto Rejoin wird in diesem Fall nicht angeboten; die gespeicherte Einstellung bleibt für unterstützte Umgebungen erhalten. Start, Farming, erneutes Laden und Entladen sind mit gesperrtem Event lokal getestet.

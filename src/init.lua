@@ -2,7 +2,7 @@
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 local env = getgenv()
-local VERSION = "2.10.0"
+local VERSION = "2.10.1"
 if env.LUBRuntime and env.LUBRuntime.alive then
     if env.LUBRuntime.version == VERSION then
         env.LUBRuntime.show()
@@ -117,19 +117,23 @@ end
 
 env.LUBSaveConfig()
 local rejoining = false
-runtime.track(game:GetService("GuiService").ErrorMessageChanged:Connect(function(message)
-    if runtime.alive and config.settings.auto_rejoin_on_kick and not rejoining and message ~= ""
-        and not runtime.joinInProgress and os.clock() >= (runtime.joinFailureUntil or 0) then
-        rejoining = true
-        local joined, joinError = pcall(function()
-            game:GetService("TeleportService"):Teleport(game.PlaceId, game:GetService("Players").LocalPlayer)
-        end)
-        if not joined then
-            rejoining = false
-            warn("LUB: rejoin failed: " .. tostring(joinError))
+-- Optional kick detection is restricted in some executor callback contexts.
+-- Protect both the event lookup and Connect so it cannot abort startup.
+runtime.canAutoRejoin = pcall(function()
+    runtime.track(game:GetService("GuiService").ErrorMessageChanged:Connect(function(message)
+        if runtime.alive and config.settings.auto_rejoin_on_kick and not rejoining and message ~= ""
+            and not runtime.joinInProgress and os.clock() >= (runtime.joinFailureUntil or 0) then
+            rejoining = true
+            local joined, joinError = pcall(function()
+                game:GetService("TeleportService"):Teleport(game.PlaceId, game:GetService("Players").LocalPlayer)
+            end)
+            if not joined then
+                rejoining = false
+                warn("LUB: rejoin failed: " .. tostring(joinError))
+            end
         end
-    end
-end))
+    end))
+end)
 
 -- Reload the user's local bundle after teleport, never the upstream tool.
 local queue = queue_on_teleport or queueonteleport

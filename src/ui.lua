@@ -1,4 +1,4 @@
--- LUB 2.10.0: WindUI 1.6.66, with Game, Games List and Settings only.
+-- LUB 2.10.1: WindUI 1.6.66, with Game, Games List and Settings only.
 local env = getgenv()
 local runtime = env.LUBRuntime
 local source = game:HttpGet("https://github.com/Footagesus/WindUI/releases/download/1.6.66/main.lua")
@@ -88,13 +88,13 @@ renderingToggle = SettingsTab:Toggle({
     Title = "Disable 3D Rendering", Desc = "Keep the UI visible while hiding the 3D world.",
     Value = settings.disable_3d_rendering, Callback = setRendering,
 })
-SettingsTab:Toggle({
+if runtime.canAutoRejoin then SettingsTab:Toggle({
     Title = "Auto Rejoin (when kicked)", Desc = "Reconnect after a disconnect or kick.",
     Value = settings.auto_rejoin_on_kick,
     Callback = function(value)
         if runtime.alive then runtime.setSetting("auto_rejoin_on_kick", value) end
     end,
-})
+}) end
 -- WindUI intentionally does not invoke toggle callbacks for their initial value.
 setRendering(settings.disable_3d_rendering)
 local unloadButton = SettingsTab:Button({
