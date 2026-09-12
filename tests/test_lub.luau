@@ -540,7 +540,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.8.1" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.8.2" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -742,7 +742,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.8.1")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.8.2")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -1405,6 +1405,8 @@ test("Fishing Chef Auto Fish moves once to its saved spot then starts casting", 
     expect(not s.castCount, "Wait for the move before casting")
     root.NoMovementGuard = true
     s:advance(4)
+    expect(not s.resolved, "Default Resolve delay must be five seconds")
+    s:advance(3)
     expect(s.castCount and s.resolved and not s.autoStarts)
     expect(s:find("Auto Fish").Value, "Subsequent casts must not reposition")
 end)
@@ -1437,7 +1439,7 @@ test("Fishing Chef recovers after a failed catch in both fishing modes", functio
     for _, mode in ipairs({"Auto Fish", "Autofarm"}) do
         local options = {empty=true, noCatch=true}
         local s = chef(options)
-        s:click(mode); s:advance(6)
+        s:click(mode); s:advance(11)
         expect(s:find(mode).Value and s.globals.LUBRuntime.fishingChef.caught == 0)
         expect(not s.castPending, "Failed cast must be cancelled before retry")
         options.noCatch = false

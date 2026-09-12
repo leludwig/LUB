@@ -17,7 +17,7 @@ return function(tab)
     local ownsFishing = false
     local castSession, fishingSpot
     local goToSpotOnStart = false
-    local resolveDelay = 0.5
+    local resolveDelay = 5
     local activeCharacter
     local status
     local toggles = {}

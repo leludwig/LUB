@@ -2,7 +2,7 @@
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 local env = getgenv()
-local VERSION = "2.8.1"
+local VERSION = "2.8.2"
 if env.LUBRuntime and env.LUBRuntime.alive then
     if env.LUBRuntime.version == VERSION then
         env.LUBRuntime.show()
