@@ -418,6 +418,9 @@ local function setup(options)
         return result
     end
     globals.TEST_WINDUI = {
+        ScreenGui = node("ScreenGui", "WindUI", services.CoreGui),
+        NotificationGui = node("ScreenGui", "WindUI Notifications", services.CoreGui),
+        Creator = {DisconnectAll = function() state.uiDisconnected = true end},
         CreateWindow = function(_, config)
             local window = { Tabs = {}, Config = config, Closed = false }
             state.window = window
@@ -427,6 +430,7 @@ local function setup(options)
                 return tab
             end
             function window:SelectTab(index)
+                if options.failWindowSetup then error("Original window setup error") end
                 assert(type(index) == "number" and self.Tabs[index], "WindUI requires a numeric tab index")
                 self.Selected = index
             end
@@ -435,6 +439,7 @@ local function setup(options)
             function window:Close() self.Closed = true end
             function window:Toggle() self.Closed = not self.Closed end
             function window:Destroy()
+                if options.failWindowDestroy then error("The current thread cannot access Instance (lacking capability Plugin)") end
                 self.Destroyed = true
                 if self.destroyCallback then globals.task.spawn(self.destroyCallback) end
             end
@@ -476,13 +481,18 @@ local function setup(options)
         return "return getgenv().TEST_WINDUI"
     end
     if options.legacy then
-        globals.LUBRuntime = { alive = true, version = "2.4.0", cleanup = function() state.legacyStopped = true end }
+        globals.LUBRuntime = { alive = true, version = "2.4.0", cleanup = function()
+            state.legacyStopped = true
+            if options.failLegacyCleanup then error("Legacy Close failed") end
+        end }
     end
     if options.prepare then options.prepare(state, player, storage) end
     globals.LUBSources = SOURCES
     local initialized, initError = pcall(function() state:load("src/init.lua") end)
     if options.failWindUI then
         expect(not initialized and tostring(initError):find("WindUI download failed", 1, true))
+    elseif options.failWindowSetup then
+        expect(not initialized and tostring(initError):find("Original window setup error", 1, true), tostring(initError))
     else
         assert(initialized, initError)
     end
@@ -523,7 +533,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.7.1" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.7.2" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -725,7 +735,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.7.1")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.7.2")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -1455,6 +1465,17 @@ test("Fishing Chef cuts on the earliest target pass with measured Perfect qualit
         measured += math.clamp(1 - math.abs(goal - cursor) / 0.2, 0, 1)
     end
     expect(measured >= 1.3 and math.abs(s.lastScore - measured) < 0.0001)
+end)
+
+test("WindUI Close capability failure removes owned UI and does not mask startup errors", function()
+    local s = setup({failWindowDestroy=true})
+    s:click("Collect Eggs Only"); s:click("Unload LUB"); s:advance(1)
+    expect(not s.globals.LUBRuntime.alive and s.uiDisconnected)
+    expect(not s.globals.TEST_WINDUI.ScreenGui.Parent and not s.globals.TEST_WINDUI.NotificationGui.Parent)
+    local failed = setup({failWindowSetup=true, failWindowDestroy=true})
+    expect(not failed.globals.LUBRuntime.alive and failed.uiDisconnected)
+    local upgraded = setup({legacy=true, failLegacyCleanup=true})
+    expect(upgraded.globals.LUBRuntime.alive and upgraded.legacyStopped)
 end)
 
 print(string.format("%d behavioral tests passed", passed))

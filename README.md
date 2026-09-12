@@ -48,7 +48,7 @@ Für die Prompt-Aktionen benötigt die Ausführungsumgebung `fireproximityprompt
 
 ## Fishing Chef · 88599461076137
 
-Version 2.7.1 bietet unter **Game → Auto Farm** drei getrennte Modi. Alle starten ausgeschaltet; das Einschalten eines Modus beendet den vorherigen.
+Version 2.7.2 bietet unter **Game → Auto Farm** drei getrennte Modi. Alle starten ausgeschaltet; das Einschalten eines Modus beendet den vorherigen.
 
 - **Autofarm:** prüft zuerst eigene wartende Kunden und deren Bestellung. Passende fertige Gerichte werden serviert; andernfalls wird das bestellte Gericht zubereitet und bei fehlendem Fisch geangelt. Ohne Kundenbestellung wird nichts auf Vorrat gekocht. Das Restaurant muss geöffnet sein.
 - **Auto Fish:** angelt ausschließlich, auch bei geschlossenem Restaurant. Ein gültiger aktueller Angelplatz wird direkt genutzt; eine Angel muss im Rucksack oder ausgerüstet sein.
@@ -96,7 +96,7 @@ Bei einem unbekannten Spiel zeigt der Game-Tab **Game not supported** mit der ak
 
 WindUI lässt sich mit **Insert (Einfg)** aus- und einblenden. Die kleine **LUB**-Schaltfläche öffnet das Fenster ebenfalls.
 
-Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Chicken Farm und Sell Ores haben getrennte gespeicherte Einstellungen; Fishing Chef wird pro Sitzung gestartet; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.7.1; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
+Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Chicken Farm und Sell Ores haben getrennte gespeicherte Einstellungen; Fishing Chef wird pro Sitzung gestartet; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.7.2; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
 
 Optional kann die Startdatei lokal als `LUB/LUB.lua` im Workspace der Ausführungsumgebung abgelegt und so ausgeführt werden:
 
@@ -130,7 +130,7 @@ python tools/test.py --luau-dir .tools/luau
 
 Der Build braucht nur Python 3. Für die Tests werden `luau` und `luau-compile` aus den [offiziellen Luau-Releases](https://github.com/luau-lang/luau/releases) benötigt. Der Build prüft eindeutige Place-IDs und die Übereinstimmung zwischen Games List und den enthaltenen Spielskripten.
 
-Geprüft werden sieben Luau-Dateien einschließlich Startdatei und 68 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Chicken-Farm-Ablauf, automatische Basiswahl, Sell-Ores-Prompt-Reihenfolge und Wartezeiten, Roll-Käufe, Verkauf, verfügbare Belohnungen, Upgrade-Käufe, Ofen-Durchsatz und Erzentscheidungen, Entladen sowie Spielbeitritt, Insert-Taste, getrennte Einstellungen, unbekannte Spiele und Versionswechsel. Die Beitrittstests decken aktuelle/volle Server, Pagination, HTTP-Fehler, begrenzte Wiederholungen, Zugriffsablehnungen, Roblox-Dialog, Mehrfachklicks, Timeouts und Abbruch beim Entladen ab. Die öffentlichen Serverlisten und die Zuordnung der Startplätze wurden über die Roblox-API geprüft. Die Fishing-Chef-Tests prüfen zusätzlich die Kundenbestellungen, Rezeptauswahl, getrennte Modi, Rezeptfreischaltungen, benötigten Fischarten, Favoriten und Eigentümer, abgeschaltete Restaurants, Abbrüche, Versionsschutz durch Laufkennungen, verzögerte Antworten, Fehler und Zeitlimits. Die Darstellung und der vollständige Restaurantablauf wurden nicht live verifiziert; der oben beschriebene einzelne Angeltest ist davon ausgenommen.
+Geprüft werden sieben Luau-Dateien einschließlich Startdatei und 69 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Chicken-Farm-Ablauf, automatische Basiswahl, Sell-Ores-Prompt-Reihenfolge und Wartezeiten, Roll-Käufe, Verkauf, verfügbare Belohnungen, Upgrade-Käufe, Ofen-Durchsatz und Erzentscheidungen, Entladen sowie Spielbeitritt, Insert-Taste, getrennte Einstellungen, unbekannte Spiele und Versionswechsel. Die Beitrittstests decken aktuelle/volle Server, Pagination, HTTP-Fehler, begrenzte Wiederholungen, Zugriffsablehnungen, Roblox-Dialog, Mehrfachklicks, Timeouts und Abbruch beim Entladen ab. Die öffentlichen Serverlisten und die Zuordnung der Startplätze wurden über die Roblox-API geprüft. Die Fishing-Chef-Tests prüfen zusätzlich die Kundenbestellungen, Rezeptauswahl, getrennte Modi, Rezeptfreischaltungen, benötigten Fischarten, Favoriten und Eigentümer, abgeschaltete Restaurants, Abbrüche, Versionsschutz durch Laufkennungen, verzögerte Antworten, Fehler und Zeitlimits. Die Darstellung und der vollständige Restaurantablauf wurden nicht live verifiziert; der oben beschriebene einzelne Angeltest ist davon ausgenommen.
 
 ## Herkunft
 
@@ -139,3 +139,5 @@ Das Chicken-Farm-Skript basiert auf [BrainrotPolice](https://github.com/IcantAff
 Die Oberfläche verwendet [WindUI von Footages](https://github.com/Footagesus/WindUI), Version 1.6.66, unter der MIT-Lizenz. LUB lädt die unveränderte offizielle Bibliothek beim Start.
 
 Das Sell-Ores-Modul stammt aus dem vom Nutzer bereitgestellten Skript von **seltonmt**. Die Autorenzeile und ursprünglichen Kommentare bleiben erhalten; Messangaben in diesen Kommentaren stammen aus der Vorlage und sind keine Live-Verifikation durch LUB.
+
+WindUI-Cleanup ab 2.7.2: Fehler der Schließanimation unter eingeschränkten Executor-Callbacks unterbrechen das Aufräumen nicht mehr. LUB versucht dann, nur die GUI-Wurzeln seiner eigenen WindUI-Instanz direkt zu entfernen und ihre Verbindungen zu lösen. Falls auch das nicht erlaubt ist, wird der Fehler gemeldet. Ein ursprünglicher Startfehler bleibt als LUB startup error sichtbar. Das Verhalten wurde mit simulierten Capability-Fehlern getestet; die konkrete Executor-Sitzung ist noch nicht live geprüft.

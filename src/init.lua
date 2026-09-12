@@ -2,14 +2,15 @@
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 local env = getgenv()
-local VERSION = "2.7.1"
+local VERSION = "2.7.2"
 if env.LUBRuntime and env.LUBRuntime.alive then
     if env.LUBRuntime.version == VERSION then
         env.LUBRuntime.show()
         return
     end
     -- Replace the old interface and stop its farm workers when upgrading in place.
-    env.LUBRuntime.cleanup()
+    local stopped, stopError = pcall(env.LUBRuntime.cleanup)
+    if not stopped then warn("LUB: previous window cleanup failed: " .. tostring(stopError)) end
 end
 
 local http = game:GetService("HttpService")
@@ -28,7 +29,21 @@ function runtime.cleanup(fromWindow)
     runtime.alive = false
     for _, cleanup in ipairs(runtime.cleanups) do pcall(cleanup) end
     pcall(function() game:GetService("RunService"):Set3dRenderingEnabled(true) end)
-    if runtime.window and not fromWindow then runtime.window:Destroy() end
+    if runtime.window and not fromWindow then
+        local destroyed, destroyError = pcall(function() runtime.window:Destroy() end)
+        if not destroyed then
+            -- Close's animation can fail in executor callback contexts. Remove
+            -- only this library instance's GUI roots without running Close.
+            runtime.window.Destroyed = true
+            if runtime.disconnectUI then pcall(runtime.disconnectUI) end
+            local removed = #(runtime.uiRoots or {}) > 0
+            for _, root in ipairs(runtime.uiRoots or {}) do
+                local ok = pcall(function() root:Destroy() end)
+                removed = ok and removed
+            end
+            if not removed then warn("LUB: window could not be removed: " .. tostring(destroyError)) end
+        end
+    end
 end
 
 function runtime.show()
@@ -127,6 +142,7 @@ local loaded, loadError = pcall(function()
     env.LUBRequire("src/ui.lua")
 end)
 if not loaded then
+    warn("LUB startup error: " .. tostring(loadError))
     runtime.cleanup()
     error("LUB could not start: " .. tostring(loadError))
 end
