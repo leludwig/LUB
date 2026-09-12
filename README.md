@@ -48,7 +48,7 @@ Für die Prompt-Aktionen benötigt die Ausführungsumgebung `fireproximityprompt
 
 ## Fishing Chef · 88599461076137
 
-Version 2.7.3 bietet unter **Game → Auto Farm** drei getrennte Modi. Alle starten ausgeschaltet; das Einschalten eines Modus beendet den vorherigen.
+Version 2.7.4 bietet unter **Game → Auto Farm** drei getrennte Modi. Alle starten ausgeschaltet; das Einschalten eines Modus beendet den vorherigen.
 
 - **Autofarm:** prüft zuerst eigene wartende Kunden und deren Bestellung. Passende fertige Gerichte werden serviert; andernfalls wird das bestellte Gericht zubereitet und bei fehlendem Fisch geangelt. Ohne Kundenbestellung wird nichts auf Vorrat gekocht. Das Restaurant muss geöffnet sein.
 - **Auto Fish:** angelt ausschließlich, auch bei geschlossenem Restaurant. Ein gültiger aktueller Angelplatz wird direkt genutzt; eine Angel muss im Rucksack oder ausgerüstet sein.
@@ -70,7 +70,7 @@ Die pauschale Kochwartezeit von 7–20 Sekunden entfällt. Mit vorhandenem Perfe
 
 Version 2.7.1 stellt die Inventarleiste nach einem Cast, bei Fangende und beim Stoppen wieder her; auch eine von einer vorherigen Sitzung ausgeblendete Leiste wird beim Laden repariert. Fehlgeschlagene Fänge führen zu einem neuen Versuch statt zum Abschalten.
 
-Die Schneideschritte nutzen den frühesten möglichen Treffer des Zeigers und nur 0,05 Sekunden Pause zwischen den Schnitten. Bei den aufgezeichneten Zielen 0,8 und 0,4 reduziert sich die berechnete Dauer von rund 3,42 auf 2,04 Sekunden; tatsächliche Laufzeit und Serverannahme können abweichen. Die Perfect-Prüfung anhand des gemessenen Scores bleibt bestehen. Sie verwenden die Ziele der aktuellen `StartCutSession` und die Cursorbewegung des normalen Schneideminispiels. `CutFish` verwendet die aktuelle Fisch-ID; `Cook` erhält eine erneut gelesene Zutat. Erst ein neuer Eintrag in `Plates` zählt als gekochtes Gericht; die Zahl bedienter Kunden kommt aus dem replizierten Spielzähler. Ausschalten, Entladen und Charakterwechsel stoppen Folgeschritte sowie das von LUB gestartete automatische Angeln. Bereits beim Server laufende Aufrufe können nicht zurückgenommen werden.
+Version 2.7.4 nimmt die Beschleunigung des Schneidens zurück: LUB wartet wieder auf den absteigenden Zeigerdurchlauf und nach jedem Schnitt 0,25 Sekunden. Bei den aufgezeichneten Zielen 0,8 und 0,4 sind das rund 3,42 Sekunden. Anlass war ein Live-Bericht über nicht bestätigte Perfect-Filets; ob die längeren Zeiten diesen Fehler beheben, ist noch nicht live bestätigt. Die Perfect-Prüfung anhand des gemessenen Scores bleibt bestehen. Sie verwenden die Ziele der aktuellen `StartCutSession` und die Cursorbewegung des normalen Schneideminispiels. `CutFish` verwendet die aktuelle Fisch-ID; `Cook` erhält eine erneut gelesene Zutat. Erst ein neuer Eintrag in `Plates` zählt als gekochtes Gericht; die Zahl bedienter Kunden kommt aus dem replizierten Spielzähler. Ausschalten, Entladen und Charakterwechsel stoppen Folgeschritte sowie das von LUB gestartete automatische Angeln. Bereits beim Server laufende Aufrufe können nicht zurückgenommen werden.
 
 Grundlage sind die bereitgestellten Cobalt-Logs und die zuvor ausgelesene Clientstruktur. Der native Angelablauf wurde am eigenen Steg live bestätigt (Fangzähler 12 → 13). **Der neue vollständige Restaurantablauf wurde nur lokal mit simulierten Serverantworten getestet, noch nicht live bestätigt.** Der permanente GitHub-Startbefehl lädt diese Erweiterung aus `main`; denselben Befehl nach dem Update erneut ausführen.
 
@@ -96,7 +96,7 @@ Bei einem unbekannten Spiel zeigt der Game-Tab **Game not supported** mit der ak
 
 WindUI lässt sich mit **Insert (Einfg)** aus- und einblenden. Die kleine **LUB**-Schaltfläche öffnet das Fenster ebenfalls.
 
-Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Chicken Farm und Sell Ores haben getrennte gespeicherte Einstellungen; Fishing Chef wird pro Sitzung gestartet; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.7.3; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
+Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Chicken Farm und Sell Ores haben getrennte gespeicherte Einstellungen; Fishing Chef wird pro Sitzung gestartet; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.7.4; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
 
 Optional kann die Startdatei lokal als `LUB/LUB.lua` im Workspace der Ausführungsumgebung abgelegt und so ausgeführt werden:
 

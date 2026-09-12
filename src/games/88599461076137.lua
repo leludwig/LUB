@@ -227,16 +227,15 @@ return function(tab)
             score = 0
             for index, goal in ipairs(goals) do
                 assert(type(goal) == "number" and goal >= 0 and goal <= 1, "Invalid cutting target.")
-                -- Normal cutter: cursor = (sin(2*t)+1)/2. Earliest nonnegative hit.
-                local phase = math.asin(2 * goal - 1)
-                local duration = (phase >= 0 and phase or math.pi - phase) / 2
+                -- Restore the descending pass and original inter-cut delay.
+                local duration = (math.pi - math.asin(2 * goal - 1)) / 2
                 local started = os.clock()
                 pause(token, duration)
                 local elapsed = os.clock() - started
                 local cursor = (math.sin(2 * elapsed) + 1) / 2
                 score += math.clamp(1 - math.abs(goal - cursor) / 0.2, 0, 1)
                 fire(token, "CutAction", index, elapsed)
-                if index < #goals then pause(token, 0.05) end
+                pause(token, 0.25)
             end
             checkOrder()
             if favorite("FavoriteFish", item.ID) then return false end

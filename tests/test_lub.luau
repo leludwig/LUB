@@ -540,7 +540,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.7.3" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.7.4" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -742,7 +742,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.7.3")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.7.4")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -1461,11 +1461,13 @@ test("Fishing Chef restores inventory bar during casting and on success failure 
     end
 end)
 
-test("Fishing Chef cuts on the earliest target pass with measured Perfect quality", function()
+test("Fishing Chef restores descending cutting times and original pauses", function()
     local s = chef()
-    s:click("Auto Cook"); s:advance(2.3)
-    expect(#s.dishes == 1 and s.dishes[1].at < 2.1)
-    expect(s.cuts[1].elapsed < 0.4 and s.cuts[2].elapsed < 1.8)
+    s:click("Auto Cook"); s:advance(3.3)
+    expect(#s.dishes == 0, "Must preserve the original cutting duration")
+    s:advance(0.5)
+    expect(#s.dishes == 1 and s.dishes[1].at > 3.4 and s.dishes[1].at < 3.6)
+    expect(s.cuts[1].elapsed > 1.2 and s.cuts[1].elapsed < 1.3 and s.cuts[2].elapsed < 1.8)
     local measured = 0
     for index, goal in ipairs({0.8, 0.4}) do
         local cursor = (math.sin(2 * s.cuts[index].elapsed) + 1) / 2
