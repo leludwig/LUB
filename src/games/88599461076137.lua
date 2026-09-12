@@ -16,6 +16,7 @@ return function(tab)
     local mode, selectedRecipe = "farm", "Nigiri"
     local ownsFishing = false
     local castSession, fishingSpot
+    local goToSpotOnStart = false
     local resolveDelay = 0.5
     local activeCharacter
     local status
@@ -185,6 +186,16 @@ return function(tab)
     local function catch(token)
         show("Checking current fishing spot")
         local char, humanoid, root = character()
+        if mode == "fish" and goToSpotOnStart then
+            goToSpotOnStart = false
+            if fishingSpot then
+                check(token)
+                show("Moving to saved fishing spot")
+                root.CFrame = fishingSpot
+                root.AssemblyLinearVelocity = Vector3.zero
+                pause(token, 0.5)
+            end
+        end
         if fishingSpot then
             local here, saved = root.CFrame.Position, fishingSpot.Position
             local dx, dy, dz = here.X - saved.X, here.Y - saved.Y, here.Z - saved.Z
@@ -345,6 +356,7 @@ return function(tab)
         if not value and mode ~= nextMode then return end
         mode = nextMode
         enabled = value == true and runtime.alive
+        goToSpotOnStart = enabled and mode == "fish"
         state.mode = enabled and mode or nil
         generation += 1
         if enabled and fishing:IsAutoFishEnabled() then ownsFishing = true end

@@ -540,7 +540,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.8.0" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.8.1" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -742,7 +742,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.8.0")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.8.1")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -1394,19 +1394,19 @@ test("Fishing Chef cooks an existing Perfect filet immediately without recipe de
     expect(s.globals.LUBRuntime.fishingChef.cooked == 1)
 end)
 
-test("Fishing Chef saves a fishing spot and only moves on explicit button click", function()
+test("Fishing Chef Auto Fish moves once to its saved spot then starts casting", function()
     local s = chef()
     local root = s.services.Players.LocalPlayer.Character.HumanoidRootPart
     local saved = root.CFrame
     s:click("Set fishing spot")
     root.CFrame = s.globals.CFrame.new(s.globals.Vector3.new(50, 0, 0))
-    s:click("Auto Fish"); s:advance(2)
-    expect(not s.castCount and not s:find("Auto Fish").Value)
-    expect(root.CFrame.Position.X == 50)
-    s:click("Go to fishing spot")
+    s:click("Auto Fish"); s:advance(0.2)
     expect(root.CFrame == saved)
-    s:click("Auto Fish"); s:advance(2)
+    expect(not s.castCount, "Wait for the move before casting")
+    root.NoMovementGuard = true
+    s:advance(4)
     expect(s.castCount and s.resolved and not s.autoStarts)
+    expect(s:find("Auto Fish").Value, "Subsequent casts must not reposition")
 end)
 
 test("Fishing Chef remote fishing never resolves an unconfirmed cast", function()
