@@ -523,7 +523,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.6.2" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.7.0" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -725,7 +725,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.6.2")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.7.0")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -1058,6 +1058,24 @@ local function chef(options)
             assert(not options.noMovement, "Station animation may reposition the character")
             s.cutting = active
         end
+        local castResponse = node("RemoteEvent", "CastResponse", re)
+        remote("CastRequest", function(power, ...)
+            assert(select("#", ...) == 0 and power > 0 and power <= 1, "CastRequest only accepts cast strength")
+            s.castPending = true
+            s.castCount = (s.castCount or 0) + 1
+            if not options.noCastResponse then
+                castResponse.OnClientEvent:Fire(if options.rejectCast then false else {fish="anchovy"})
+            end
+        end)
+        remote("MinigameResolved", function(success)
+            if not success then s.castPending = false; return end
+            assert(s.castPending, "Resolve before cast")
+            s.resolved = (s.resolved or 0) + 1
+            s.castPending = false
+            if options.noCatch then return end
+            s.profile.FishCaught += 1
+            table.insert(s.profile.Fish, {ID=s.profile.FishCaught+100, Name="anchovy", Weight=1})
+        end)
         node("RemoteEvent", "CutAction", re).FireServer = function(_, index, elapsed)
             table.insert(s.cuts, {index=index, elapsed=elapsed})
         end
@@ -1185,10 +1203,10 @@ test("Fishing Chef rejected cooking is not counted as success or retried", funct
     expect(not s:find("Autofarm").Value)
 end)
 
-test("Fishing Chef stops native fishing on disable and times out missing catches", function()
+test("Fishing Chef stops remote fishing on disable and times out missing catches", function()
     local s = chef({empty=true,noCatch=true})
     s:click("Autofarm"); s:advance(3)
-    expect(s.autoEnabled)
+    expect(s.castCount == 1 and not s.autoEnabled)
     s:click("Autofarm"); s:advance(5)
     expect(not s.autoEnabled and s.profile.FishCaught == 12)
     s:click("Autofarm"); s:advance(65)
@@ -1227,7 +1245,7 @@ test("Fishing Chef fish-only works with a closed restaurant and never cooks", fu
     local s = chef({closed=true})
     s:click("Auto Fish"); s:advance(15)
     expect(s.globals.LUBRuntime.fishingChef.caught >= 2)
-    expect(#s.calls == 0 and #s.dishes == 0 and #s.feeds == 0)
+    expect(s.castCount >= 2 and #s.dishes == 0 and #s.feeds == 0 and not s.autoStarts)
     s:click("Auto Fish"); s:advance(3)
     expect(not s.autoEnabled and not s:find("Auto Fish").Value)
 end)
@@ -1346,6 +1364,45 @@ test("Fishing Chef cooks an existing Perfect filet immediately without recipe de
     s:click("Auto Cook"); s:advance(0.5)
     expect(#s.dishes == 1 and s.dishes[1].at < 0.5)
     expect(s.globals.LUBRuntime.fishingChef.cooked == 1)
+end)
+
+test("Fishing Chef saves a fishing spot and only moves on explicit button click", function()
+    local s = chef()
+    local root = s.services.Players.LocalPlayer.Character.HumanoidRootPart
+    local saved = root.CFrame
+    s:click("Set fishing spot")
+    root.CFrame = s.globals.CFrame.new(s.globals.Vector3.new(50, 0, 0))
+    s:click("Auto Fish"); s:advance(2)
+    expect(not s.castCount and not s:find("Auto Fish").Value)
+    expect(root.CFrame.Position.X == 50)
+    s:click("Go to fishing spot")
+    expect(root.CFrame == saved)
+    s:click("Auto Fish"); s:advance(2)
+    expect(s.castCount and s.resolved and not s.autoStarts)
+end)
+
+test("Fishing Chef remote fishing never resolves an unconfirmed cast", function()
+    for _, options in ipairs({{rejectCast=true}, {noCastResponse=true}}) do
+        local s = chef(options)
+        s:click("Auto Fish"); s:advance(10)
+        expect(not s.resolved and s.castCount == 1 and not s:find("Auto Fish").Value)
+    end
+end)
+
+test("Fishing Chef cancels a pending cast when stopped during the resolve delay", function()
+    local s = chef()
+    s:find("Resolve delay"):Set(5)
+    s:click("Auto Fish"); s:advance(1)
+    expect(s.castPending and not s.resolved)
+    s:click("Auto Fish"); s:advance(6)
+    expect(not s.castPending and not s.resolved and s.profile.FishCaught == 12)
+end)
+
+test("Fishing Chef menu has only status text below its controls", function()
+    local s = chef()
+    for _, control in ipairs(s.controls) do
+        expect(control.Title ~= "Full routine" and control.Title ~= "Perfect cooking" and control.Title ~= "Remote fishing")
+    end
 end)
 
 print(string.format("%d behavioral tests passed", passed))

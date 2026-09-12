@@ -1,4 +1,4 @@
--- Fishing Chef: native fishing controller plus recorded kitchen actions.
+-- Fishing Chef: recorded fishing and kitchen remotes.
 return function(tab)
     local env = getgenv()
     local runtime = env.LUBRuntime
@@ -13,12 +13,20 @@ return function(tab)
     local enabled, generation, worker = false, 0, false
     local mode, selectedRecipe = "farm", "Nigiri"
     local ownsFishing = false
+    local castSession, fishingSpot
+    local resolveDelay = 0.5
     local activeCharacter
     local status
     local toggles = {}
     local state = { phase = "Stopped", caught = 0, cooked = 0, served = 0 }
     runtime.fishingChef = state
     local cancelled = {}
+    runtime.track(remotes.RE.CastResponse.OnClientEvent:Connect(function(response)
+        if castSession and castSession.token == generation then
+            castSession.received = true
+            castSession.response = response
+        end
+    end))
 
     local function show(message)
         state.phase = message
@@ -56,6 +64,10 @@ return function(tab)
         return found
     end
     local function stopFishing()
+        if castSession then
+            castSession = nil
+            pcall(function() remotes.RF.MinigameResolved:InvokeServer(false) end)
+        end
         if ownsFishing then
             ownsFishing = false
             pcall(function() fishing:SetAutoFishEnabled(false) end)
@@ -131,7 +143,12 @@ return function(tab)
     end
     local function catch(token)
         show("Checking current fishing spot")
-        local char, humanoid = character()
+        local char, humanoid, root = character()
+        if fishingSpot then
+            local here, saved = root.CFrame.Position, fishingSpot.Position
+            local dx, dy, dz = here.X - saved.X, here.Y - saved.Y, here.Z - saved.Z
+            assert(dx * dx + dy * dy + dz * dz <= 9, "Return to your saved fishing spot or set a new one. LUB will not move you automatically.")
+        end
         assert(validator:CanCastFromCharacter(char), "No fishable water ahead. Stand by water and face it, then restart. LUB will not move you.")
         local rod
         for _, container in ipairs({char, player.Backpack}) do
@@ -140,19 +157,33 @@ return function(tab)
             end
         end
         assert(rod, "No fishing rod found.")
-        humanoid:EquipTool(rod)
-        pause(token, 0.5)
-        local before = data:GetData("FishCaught") or 0
         ownsFishing = true
-        fishing:SetAutoFishEnabled(true)
-        show("Fishing")
-        local started = os.clock()
-        repeat pause(token, 0.5) until (data:GetData("FishCaught") or 0) > before or os.clock() - started > 60
-        stopFishing()
+        fishing:SetAutoFishEnabled(false)
+        humanoid:EquipTool(rod)
+        pause(token, 0.1)
+        local before = data:GetData("FishCaught") or 0
+        local session = {token = token}
+        castSession = session
+        show("Casting via remote")
+        invoke(token, "CastRequest", 0.85373490388447)
+        for _ = 1, 50 do
+            if session.received then break end
+            pause(token, 0.1)
+        end
+        assert(session.received and type(session.response) == "table" and session.response.fish,
+            "Server did not confirm the cast. Check your position and rod.")
+        show("Resolving catch via remote")
+        pause(token, resolveDelay)
+        invoke(token, "MinigameResolved", true)
+        for _ = 1, 50 do
+            if (data:GetData("FishCaught") or 0) > before then break end
+            pause(token, 0.1)
+        end
         local gained = (data:GetData("FishCaught") or 0) - before
-        assert(gained > 0, "No catch within 60 seconds. Check the rod and fishing spot.")
+        assert(gained > 0, "Server did not confirm the catch. Increase Resolve delay and retry.")
+        castSession = nil
         state.caught += gained
-        pause(token, 0.5)
+        stopFishing()
     end
     local function cook(token, name, npc)
         local function checkOrder()
@@ -307,14 +338,32 @@ return function(tab)
     end})
     toggles.cook = section:Toggle({Title = "Auto Cook", Value = false, Callback = function(value) state.setMode("cook", value) end})
     status = section:Paragraph({Title = "Farm Status", Desc = "Stopped"})
+    section:Button({Title = "Set fishing spot", Desc = "Save your current position and facing direction for this session.", Callback = function()
+        if not runtime.alive then return end
+        if enabled then show("Stop the current mode before setting a fishing spot."); return end
+        local char, _, root = character()
+        if not validator:CanCastFromCharacter(char) then show("Face fishable water before setting the spot."); return end
+        fishingSpot = root.CFrame
+        show("Fishing spot saved for this session")
+    end})
+    section:Button({Title = "Go to fishing spot", Desc = "Move once to your saved spot, only when you click this button.", Callback = function()
+        if not runtime.alive then return end
+        if enabled then show("Stop the current mode before moving to your saved spot."); return end
+        if not fishingSpot then show("Set a fishing spot first."); return end
+        local _, _, root = character()
+        root.CFrame = fishingSpot
+        root.AssemblyLinearVelocity = Vector3.zero
+        show("At saved fishing spot")
+    end})
+    section:Slider({Title = "Resolve delay", Desc = "Seconds between confirmed cast and remote resolution. Increase if the server rejects catches.", Step = 0.1,
+        Value = {Min = 0.1, Max = 12, Default = resolveDelay}, Callback = function(value)
+            if type(value) == "number" and value == value then resolveDelay = math.clamp(value, 0.1, 12) end
+        end})
     section:Button({Title = "Check fishing spot", Desc = "Check for fishable water ahead without moving or turning.", Callback = function()
         if not runtime.alive then return end
         local char = player.Character
         show(char and validator:CanCastFromCharacter(char) and "Current fishing spot is valid" or "Stand by fishable water and face it")
     end})
-    section:Paragraph({Title = "No automatic movement", Desc = "Cutting, cooking and serving use remote calls from your current position. Fishing needs water in front of you. If the server rejects an interaction, LUB stops; it never teleports you."})
-    section:Paragraph({Title = "Perfect cooking", Desc = "Uses only confirmed Perfect (5-star) filets. Lower-quality filets stay in inventory. Stops if cutting misses Perfect or the server returns an unverified dish quality."})
-    section:Paragraph({Title = "Full routine", Desc = "Autofarm prepares your customers' orders, fishing when needed. Auto Fish only fishes. Auto Cook repeatedly prepares the selected recipe from inventory, without fishing or serving. One mode runs at a time. Recipes need their normal unlocks and ingredients; favorites stay protected."})
     show("Stopped")
     -- Start explicitly: loading a new game module must not consume inventory.
 end
