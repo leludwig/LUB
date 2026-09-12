@@ -523,7 +523,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.6.2" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -725,7 +725,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.6.1")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.6.2")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -1069,7 +1069,7 @@ local function chef(options)
                     assert(not s.profile.FavoriteFish[tostring(id)], "Favorite consumed")
                     s.lastCut = id
                     table.remove(s.profile.Fish, i)
-                    table.insert(s.items, {ID = 1, Name = "Fish Filet", CF = item.Name, CookedAt = 100, Data = 4, Amount = 1})
+                    table.insert(s.items, {ID = 1, Name = "Fish Filet", CF = item.Name, CookedAt = 100, Data = options.cutQuality or 4, Amount = 1})
                     return 1
                 end
             end
@@ -1080,7 +1080,7 @@ local function chef(options)
             table.insert(s.dishes, {name=name, item=item, at=s.now})
             table.remove(s.items, table.find(s.items, item))
             if not options.rejectCook then
-                table.insert(s.profile.Plates, {Name=name, ID="P" .. #s.dishes, CF=item.CF, Value=330})
+                table.insert(s.profile.Plates, {Name=name, ID="P" .. #s.dishes, CF=item.CF, Value=330, Data=options.dishQuality or item.Data})
             end
             return "Cooked meal " .. name
         end)
@@ -1165,8 +1165,8 @@ end)
 test("Fishing Chef rechecks owner before sending the serving request", function()
     local s = chef()
     s.profile.Plates = {{Name="Nigiri", ID="P1"}}
-    s:click("Autofarm"); s:advance(0.2)
     s.npc.Owner.Value = "OtherPlayer"
+    s:click("Autofarm")
     s:advance(10)
     expect(#s.feeds == 0)
 end)
@@ -1212,7 +1212,7 @@ test("Fishing Chef cancels preparation when the character is replaced", function
 end)
 
 test("Fishing Chef cancels stale orders before consuming fish or cooking", function()
-    for _, seconds in ipairs({0.7, 5}) do
+    for _, seconds in ipairs({0.7, 2}) do
         local s = chef()
         s:click("Autofarm"); s:advance(seconds)
         s.npc:SetAttribute("Despawn", true)
@@ -1245,7 +1245,7 @@ end)
 
 test("Fishing Chef mode and recipe switches cancel pending work", function()
     local s = chef()
-    s:click("Auto Cook"); s:advance(5)
+    s:click("Auto Cook"); s:advance(2)
     s:find("Cook recipe"):Set("Sashimi"); s:advance(20)
     expect(#s.dishes == 1 and s.dishes[1].name == "Sashimi")
     s:click("Auto Fish"); s:advance(1)
@@ -1311,6 +1311,41 @@ test("Fishing Chef rejected remote serving stops without movement or repeated re
     s:click("Autofarm"); s:advance(15)
     expect(not s:find("Autofarm").Value and #s.profile.Plates == 1)
     expect(s.globals.LUBRuntime.fishingChef.phase:find("Server did not confirm serving", 1, true))
+end)
+
+test("Fishing Chef skips low-quality filets and cooks confirmed Perfect ingredients", function()
+    local s = chef()
+    local low = {ID=22, Name="Fish Filet", CF="salmon", CookedAt=99, Data=2, Amount=1}
+    table.insert(s.items, low)
+    s:click("Auto Cook"); s:advance(20)
+    expect(#s.dishes == 1 and s.dishes[1].item.Data == 4 and table.find(s.items, low))
+    expect(s.profile.Plates[1].Data == 4)
+end)
+
+test("Fishing Chef waits instead of cooking low or unknown quality filets", function()
+    local s = chef({empty=true})
+    s.items = {{ID=22, Name="Fish Filet", CF="salmon", Data=3}, {ID=23, Name="Fish Filet", CF="salmon"}}
+    s:click("Auto Cook"); s:advance(20)
+    expect(#s.dishes == 0 and #s.items == 2 and not s.autoStarts)
+end)
+
+test("Fishing Chef stops on non-Perfect server cutting or cooking results", function()
+    for _, options in ipairs({{cutQuality=3}, {dishQuality=3}}) do
+        local s = chef(options)
+        s:click("Autofarm"); s:advance(25)
+        expect(not s:find("Autofarm").Value and #s.feeds == 0)
+        expect(s.globals.LUBRuntime.fishingChef.cooked == 0)
+        expect(#s.dishes == (options.cutQuality and 0 or 1))
+    end
+end)
+
+test("Fishing Chef cooks an existing Perfect filet immediately without recipe delay", function()
+    local s = chef({empty=true, stallLevel=2})
+    s.items = {{ID=22, Name="Fish Filet", CF="salmon", CookedAt=99, Data=4, Amount=1}}
+    s:find("Cook recipe"):Set("Sushi")
+    s:click("Auto Cook"); s:advance(0.5)
+    expect(#s.dishes == 1 and s.dishes[1].at < 0.5)
+    expect(s.globals.LUBRuntime.fishingChef.cooked == 1)
 end)
 
 print(string.format("%d behavioral tests passed", passed))

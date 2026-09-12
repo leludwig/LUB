@@ -1,4 +1,4 @@
--- LUB 2.6.1: WindUI 1.6.66, with Game, Games List and Settings only.
+-- LUB 2.6.2: WindUI 1.6.66, with Game, Games List and Settings only.
 local env = getgenv()
 local runtime = env.LUBRuntime
 local source = game:HttpGet("https://github.com/Footagesus/WindUI/releases/download/1.6.66/main.lua")
@@ -6,7 +6,7 @@ local library, compileError = loadstring(source, "@WindUI/1.6.66")
 assert(library, "LUB: WindUI could not compile: " .. tostring(compileError))
 local WindUI = library()
 local Window = WindUI:CreateWindow({
-    Title = "LUB",
+    Title = "LUB " .. runtime.version,
     Author = runtime.gameEntry and runtime.gameEntry.game or "Game Tools",
     Folder = "LUB/WindUI",
     Icon = "egg",

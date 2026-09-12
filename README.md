@@ -48,7 +48,7 @@ Für die Prompt-Aktionen benötigt die Ausführungsumgebung `fireproximityprompt
 
 ## Fishing Chef · 88599461076137
 
-Version 2.6.1 bietet unter **Game → Auto Farm** drei getrennte Modi. Alle starten ausgeschaltet; das Einschalten eines Modus beendet den vorherigen.
+Version 2.6.2 bietet unter **Game → Auto Farm** drei getrennte Modi. Alle starten ausgeschaltet; das Einschalten eines Modus beendet den vorherigen.
 
 - **Autofarm:** prüft zuerst eigene wartende Kunden und deren Bestellung. Passende fertige Gerichte werden serviert; andernfalls wird das bestellte Gericht zubereitet und bei fehlendem Fisch geangelt. Ohne Kundenbestellung wird nichts auf Vorrat gekocht. Das Restaurant muss geöffnet sein.
 - **Auto Fish:** angelt ausschließlich, auch bei geschlossenem Restaurant. Ein gültiger aktueller Angelplatz wird direkt genutzt; eine Angel muss im Rucksack oder ausgerüstet sein.
@@ -61,6 +61,10 @@ LUB nutzt den vorhandenen Angelcontroller des Spiels am aktuellen Standort. **Ch
 Die Gerichtsauswahl kommt aus der aktuellen `CookingConfig`, einschließlich Nigiri, Sashimi, Sushi und Herdgerichten. Spielerlevel, Standlevel, erforderliche abgeschlossene Rezeptquests und benötigte Fischarten werden berücksichtigt. Alle Gerichte werden über `Cook(Rezeptname, aktuelle Zutat)` angefordert; nur eine bestätigte neue Platte zählt als Erfolg. Die zusätzlichen Rezeptpfade sind bisher mit simulierten Serverantworten geprüft, ihre Annahme im Live-Spiel noch nicht bestätigt.
 
 Fische, Zutaten und fertige Gerichte werden aus den aktuellen Spieldaten gewählt. Teichfische und Favoriten werden nicht verwendet. Da der Server beim Bedienen das Gericht auswählt, pausiert der Autofarm diese Rezeptart, sobald ein entsprechendes favorisiertes Gericht vorhanden ist. Vor dem Verbrauch eines Fisches und vor dem Kochen wird die Kundenbestellung erneut geprüft; verschwundene oder geänderte Bestellungen werden verworfen. Fremde Kunden werden nicht bedient. Automatische Käufe und Upgrades gehören nicht zu dieser Erweiterung.
+
+Ab Version 2.6.2 werden nur Filets mit bestätigter Perfect-Qualität (fünf Sterne) gekocht. Schlechtere oder unbekannte Qualitäten bleiben im Inventar. Erreicht der gemessene Schnittscore nicht mindestens 1,3, wird der Fisch nicht verbraucht. Nach Schneiden und Kochen wird die Serverqualität geprüft; bei fehlender Perfect-Bestätigung stoppt der Modus. Das garantiert keine serverseitige Bewertung und maximiert nicht automatisch zusätzliche Messer-, Mutations- oder Sashimi-Boni.
+
+Die pauschale Kochwartezeit von 7–20 Sekunden entfällt. Mit vorhandenem Perfect-Filet wird Cook direkt angefordert; auf Ergebnisse wird nur bis zur Bestätigung gewartet. Schnittzeiten und das native Angelminispiel bleiben bestehen. Falls der Server einen Mindestabstand zwischen Aufrufen verlangt, wird ein nicht bestätigtes Ergebnis weiterhin als Fehler angezeigt. Der Fenstertitel zeigt jetzt die geladene LUB-Version.
 
 Die Schneideschritte verwenden die Ziele der aktuellen `StartCutSession` und die Cursorbewegung des normalen Schneideminispiels. `CutFish` verwendet die aktuelle Fisch-ID; `Cook` erhält eine erneut gelesene Zutat. Erst ein neuer Eintrag in `Plates` zählt als gekochtes Gericht; die Zahl bedienter Kunden kommt aus dem replizierten Spielzähler. Ausschalten, Entladen und Charakterwechsel stoppen Folgeschritte sowie das von LUB gestartete automatische Angeln. Bereits beim Server laufende Aufrufe können nicht zurückgenommen werden.
 
@@ -88,7 +92,7 @@ Bei einem unbekannten Spiel zeigt der Game-Tab **Game not supported** mit der ak
 
 WindUI lässt sich mit **Insert (Einfg)** aus- und einblenden. Die kleine **LUB**-Schaltfläche öffnet das Fenster ebenfalls.
 
-Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Chicken Farm und Sell Ores haben getrennte gespeicherte Einstellungen; Fishing Chef wird pro Sitzung gestartet; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.6.1; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
+Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Chicken Farm und Sell Ores haben getrennte gespeicherte Einstellungen; Fishing Chef wird pro Sitzung gestartet; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.6.2; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
 
 Optional kann die Startdatei lokal als `LUB/LUB.lua` im Workspace der Ausführungsumgebung abgelegt und so ausgeführt werden:
 
@@ -122,7 +126,7 @@ python tools/test.py --luau-dir .tools/luau
 
 Der Build braucht nur Python 3. Für die Tests werden `luau` und `luau-compile` aus den [offiziellen Luau-Releases](https://github.com/luau-lang/luau/releases) benötigt. Der Build prüft eindeutige Place-IDs und die Übereinstimmung zwischen Games List und den enthaltenen Spielskripten.
 
-Geprüft werden sieben Luau-Dateien einschließlich Startdatei und 57 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Chicken-Farm-Ablauf, automatische Basiswahl, Sell-Ores-Prompt-Reihenfolge und Wartezeiten, Roll-Käufe, Verkauf, verfügbare Belohnungen, Upgrade-Käufe, Ofen-Durchsatz und Erzentscheidungen, Entladen sowie Spielbeitritt, Insert-Taste, getrennte Einstellungen, unbekannte Spiele und Versionswechsel. Die Beitrittstests decken aktuelle/volle Server, Pagination, HTTP-Fehler, begrenzte Wiederholungen, Zugriffsablehnungen, Roblox-Dialog, Mehrfachklicks, Timeouts und Abbruch beim Entladen ab. Die öffentlichen Serverlisten und die Zuordnung der Startplätze wurden über die Roblox-API geprüft. Die Fishing-Chef-Tests prüfen zusätzlich die Kundenbestellungen, Rezeptauswahl, getrennte Modi, Rezeptfreischaltungen, benötigten Fischarten, Favoriten und Eigentümer, abgeschaltete Restaurants, Abbrüche, Versionsschutz durch Laufkennungen, verzögerte Antworten, Fehler und Zeitlimits. Die Darstellung und der vollständige Restaurantablauf wurden nicht live verifiziert; der oben beschriebene einzelne Angeltest ist davon ausgenommen.
+Geprüft werden sieben Luau-Dateien einschließlich Startdatei und 61 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Chicken-Farm-Ablauf, automatische Basiswahl, Sell-Ores-Prompt-Reihenfolge und Wartezeiten, Roll-Käufe, Verkauf, verfügbare Belohnungen, Upgrade-Käufe, Ofen-Durchsatz und Erzentscheidungen, Entladen sowie Spielbeitritt, Insert-Taste, getrennte Einstellungen, unbekannte Spiele und Versionswechsel. Die Beitrittstests decken aktuelle/volle Server, Pagination, HTTP-Fehler, begrenzte Wiederholungen, Zugriffsablehnungen, Roblox-Dialog, Mehrfachklicks, Timeouts und Abbruch beim Entladen ab. Die öffentlichen Serverlisten und die Zuordnung der Startplätze wurden über die Roblox-API geprüft. Die Fishing-Chef-Tests prüfen zusätzlich die Kundenbestellungen, Rezeptauswahl, getrennte Modi, Rezeptfreischaltungen, benötigten Fischarten, Favoriten und Eigentümer, abgeschaltete Restaurants, Abbrüche, Versionsschutz durch Laufkennungen, verzögerte Antworten, Fehler und Zeitlimits. Die Darstellung und der vollständige Restaurantablauf wurden nicht live verifiziert; der oben beschriebene einzelne Angeltest ist davon ausgenommen.
 
 ## Herkunft
 
