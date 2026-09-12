@@ -13,9 +13,7 @@ return function(tab)
     local enabled, generation, worker = false, 0, false
     local mode, selectedRecipe = "farm", "Nigiri"
     local ownsFishing = false
-    local cuttingBoard
     local activeCharacter
-    local customSpot
     local status
     local toggles = {}
     local state = { phase = "Stopped", caught = 0, cooked = 0, served = 0 }
@@ -56,20 +54,6 @@ return function(tab)
         local found = workspace.Code.Plots:FindFirstChild(player.Name)
         assert(found and found:GetAttribute("Owner") == player.Name, "Own restaurant is not loaded.")
         return found
-    end
-    local function move(token, cf)
-        check(token)
-        local _, _, root = character()
-        root.CFrame = cf
-        root.AssemblyLinearVelocity = Vector3.zero
-        pause(token, 0.5)
-    end
-    local function stopCutting()
-        if cuttingBoard then
-            local board = cuttingBoard
-            cuttingBoard = nil
-            pcall(function() remotes.RE.ServerAnims:FireServer("CuttingBoard", board, false) end)
-        end
     end
     local function stopFishing()
         if ownsFishing then
@@ -124,11 +108,9 @@ return function(tab)
         return selected, false
     end
     local function serve(token, npc)
-        local location = npc:FindFirstChild("Location")
-        if not location then return false end
         local name = npc:GetAttribute("Order")
         show("Serving " .. name)
-        move(token, location.Value * CFrame.new(0, 2, 3))
+        pause(token, 0.5)
         local owner = npc:FindFirstChild("Owner")
         if not npc.Parent or not owner or owner.Value ~= player.Name
             or npc:GetAttribute("Despawn") or npc:GetAttribute("WaitingForFood") == false
@@ -138,28 +120,12 @@ return function(tab)
         pause(token, 1.5)
         local after = (data:GetData("NightMarket") or {}).CustomersServedTotal or 0
         if after > before then state.served += after - before; return true end
-        return false
+        error("Server did not confirm serving " .. name .. ". Check customer availability and interaction distance.")
     end
     local function catch(token)
-        show("Finding a fishing spot")
-        local char, humanoid, root = character()
-        local found = false
-        if customSpot then
-            move(token, customSpot)
-            found = validator:CanCastFromCharacter(char)
-        elseif mode == "fish" and validator:CanCastFromCharacter(char) then
-            found = true
-        else
-            local origin = plot().BoatSpawnJetty.Position
-            for angle = 0, 7 do
-                check(token)
-                root.CFrame = CFrame.new(origin + Vector3.new(0, 3, 0)) * CFrame.Angles(0, angle * math.pi / 4, 0)
-                root.AssemblyLinearVelocity = Vector3.zero
-                if validator:CanCastFromCharacter(char) then found = true; break end
-            end
-            pause(token, 0.5)
-        end
-        assert(found, "No valid fishing spot. Stand by water, face it, then use Set fishing spot.")
+        show("Checking current fishing spot")
+        local char, humanoid = character()
+        assert(validator:CanCastFromCharacter(char), "No fishable water ahead. Stand by water and face it, then restart. LUB will not move you.")
         local rod
         for _, container in ipairs({char, player.Backpack}) do
             for _, tool in ipairs(container:GetChildren()) do
@@ -193,8 +159,7 @@ return function(tab)
         for _, item in ipairs(items or {}) do
             if item.Name == "Fish Filet" and (not recipe.RequiredFish or recipe.RequiredFish[item.CF]) then filet = item; break end
         end
-        local board = plot().STALL.CookingStation.CuttingBoard
-        move(token, board.CFrame * CFrame.new(0, 3, 3))
+        pause(token, 0.5)
         checkOrder()
         local score
         if not filet then
@@ -203,8 +168,6 @@ return function(tab)
             show("Cutting " .. item.Name)
             local goals = invoke(token, "StartCutSession")
             assert(type(goals) == "table" and #goals == 2, "Unexpected cutting session; stopped.")
-            cuttingBoard = board
-            fire(token, "ServerAnims", "CuttingBoard", board, true)
             score = 0
             for index, goal in ipairs(goals) do
                 assert(type(goal) == "number" and goal >= 0 and goal <= 1, "Invalid cutting target.")
@@ -218,7 +181,6 @@ return function(tab)
                 fire(token, "CutAction", index, elapsed)
                 pause(token, 0.25)
             end
-            stopCutting()
             checkOrder()
             if favorite("FavoriteFish", item.ID) then return false end
             invoke(token, "CutFish", item.ID, score)
@@ -296,7 +258,6 @@ return function(tab)
         generation += 1
         if enabled and fishing:IsAutoFishEnabled() then ownsFishing = true end
         stopFishing()
-        stopCutting()
         for key, control in pairs(toggles) do control:Set(enabled and key == mode, false) end
         show(enabled and "Starting" or "Stopped")
         if worker or not enabled then return end
@@ -306,7 +267,6 @@ return function(tab)
                 local token = generation
                 local ok, err = pcall(step, token)
                 stopFishing()
-                stopCutting()
                 if not ok and err ~= cancelled and generation == token and runtime.alive then
                     state.setMode(mode, false)
                     show("Stopped: " .. tostring(err))
@@ -322,7 +282,6 @@ return function(tab)
         enabled = false
         generation += 1
         stopFishing()
-        stopCutting()
     end)
     local section = tab:Section({Title = "Auto Farm", Opened = true})
     toggles.farm = section:Toggle({Title = "Autofarm", Value = false, Callback = state.setEnabled})
@@ -337,14 +296,12 @@ return function(tab)
     end})
     toggles.cook = section:Toggle({Title = "Auto Cook", Value = false, Callback = function(value) state.setMode("cook", value) end})
     status = section:Paragraph({Title = "Farm Status", Desc = "Stopped"})
-    section:Button({Title = "Set fishing spot", Desc = "Use your current position and facing direction for this session.", Callback = function()
+    section:Button({Title = "Check fishing spot", Desc = "Check for fishable water ahead without moving or turning.", Callback = function()
         if not runtime.alive then return end
-        if enabled then show("Stop Autofarm before changing the fishing spot."); return end
-        local char, _, root = character()
-        if not validator:CanCastFromCharacter(char) then show("Face fishable water before setting the spot."); return end
-        customSpot = root.CFrame
-        show("Fishing spot saved for this session")
+        local char = player.Character
+        show(char and validator:CanCastFromCharacter(char) and "Current fishing spot is valid" or "Stand by fishable water and face it")
     end})
+    section:Paragraph({Title = "No automatic movement", Desc = "Cutting, cooking and serving use remote calls from your current position. Fishing needs water in front of you. If the server rejects an interaction, LUB stops; it never teleports you."})
     section:Paragraph({Title = "Full routine", Desc = "Autofarm prepares your customers' orders, fishing when needed. Auto Fish only fishes. Auto Cook repeatedly prepares the selected recipe from inventory, without fishing or serving. One mode runs at a time. Recipes need their normal unlocks and ingredients; favorites stay protected."})
     show("Stopped")
     -- Start explicitly: loading a new game module must not consume inventory.

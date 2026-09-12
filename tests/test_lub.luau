@@ -118,6 +118,9 @@ local function setup(options)
                 return methods.FindFirstChild(self, key)
             end,
             __newindex = function(self, key, value)
+                if self._props.NoMovementGuard and (key == "CFrame" or key == "Position" or key == "AssemblyLinearVelocity" or key == "Anchored") then
+                    error("Unexpected character movement: " .. key)
+                end
                 if key == "Parent" then
                     local old = self._props.Parent
                     if old then
@@ -722,7 +725,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.6.0")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.6.1")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -977,6 +980,7 @@ local function chef(options)
         player.Character = node("Model", "Character")
         local hrp = node("Part", "HumanoidRootPart", player.Character)
         hrp.CFrame = g.CFrame.new(g.Vector3.zero)
+        hrp.NoMovementGuard = options.noMovement
         local hum = node("Humanoid", "Humanoid", player.Character)
         hum.EquipTool = function(_, tool) tool.Parent = player.Character end
         hum.UnequipTools = function()
@@ -1050,7 +1054,10 @@ local function chef(options)
         end
         remote("RequestRestaurauntData", function() return table.clone(s.items), {}, {}, s.profile.NightMarket end)
         remote("StartCutSession", function() return options.badGoals and {0.8, "invalid"} or {0.8, 0.4} end)
-        node("RemoteEvent", "ServerAnims", re).FireServer = function(_, _, _, active) s.cutting = active end
+        node("RemoteEvent", "ServerAnims", re).FireServer = function(_, _, _, active)
+            assert(not options.noMovement, "Station animation may reposition the character")
+            s.cutting = active
+        end
         node("RemoteEvent", "CutAction", re).FireServer = function(_, index, elapsed)
             table.insert(s.cuts, {index=index, elapsed=elapsed})
         end
@@ -1078,6 +1085,7 @@ local function chef(options)
             return "Cooked meal " .. name
         end)
         node("RemoteEvent", "StoreFood", re).FireServer = function(_, npc, ...)
+            if options.rejectServe then return end
             assert(select("#", ...) == 0, "StoreFood only takes an NPC")
             assert(npc.Owner.Value == player.Name, "Foreign customer")
             local matched
@@ -1154,7 +1162,7 @@ test("Fishing Chef waits for opening then prepares the ordered Sashimi", functio
     expect(#s.dishes == 1 and #s.feeds == 1 and s.dishes[1].name == "Sashimi")
 end)
 
-test("Fishing Chef rechecks owner after travelling to customer", function()
+test("Fishing Chef rechecks owner before sending the serving request", function()
     local s = chef()
     s.profile.Plates = {{Name="Nigiri", ID="P1"}}
     s:click("Autofarm"); s:advance(0.2)
@@ -1274,6 +1282,35 @@ test("Fishing Chef cook-only preserves favorited fish", function()
     local s = chef({favorite=true})
     s:click("Auto Cook"); s:advance(30)
     expect(#s.dishes == 0 and not s.lastCut and not s.autoStarts and s.profile.Fish[1].ID == 77)
+end)
+
+test("Fishing Chef all modes work without character movement or station animations", function()
+    for _, mode in ipairs({"Autofarm", "Auto Fish", "Auto Cook"}) do
+        local s = chef({empty=mode ~= "Auto Cook", noMovement=true})
+        s:click("Check fishing spot")
+        s:click(mode); s:advance(30)
+        local state = s.globals.LUBRuntime.fishingChef
+        expect(s:find(mode).Value, state.phase)
+        if mode == "Autofarm" then expect(state.caught > 0 and state.cooked == 1 and state.served == 1, state.phase)
+        elseif mode == "Auto Fish" then expect(state.caught > 0 and state.cooked == 0)
+        else expect(state.cooked == 1 and state.caught == 0 and state.served == 0) end
+        s:click("Unload LUB"); s:advance(5)
+    end
+end)
+
+test("Fishing Chef invalid fishing position stops without moving", function()
+    local s = chef({empty=true, invalidSpot=true, noMovement=true})
+    s:click("Autofarm"); s:advance(10)
+    expect(not s:find("Autofarm").Value and not s.autoStarts)
+    expect(s.globals.LUBRuntime.fishingChef.phase:find("LUB will not move you", 1, true))
+end)
+
+test("Fishing Chef rejected remote serving stops without movement or repeated requests", function()
+    local s = chef({rejectServe=true, noMovement=true})
+    s.profile.Plates = {{Name="Nigiri", ID="P1"}}
+    s:click("Autofarm"); s:advance(15)
+    expect(not s:find("Autofarm").Value and #s.profile.Plates == 1)
+    expect(s.globals.LUBRuntime.fishingChef.phase:find("Server did not confirm serving", 1, true))
 end)
 
 print(string.format("%d behavioral tests passed", passed))
