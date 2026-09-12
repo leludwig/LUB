@@ -1,10 +1,13 @@
--- LUB 2.7.2: WindUI 1.6.66, with Game, Games List and Settings only.
+-- LUB 2.7.3: WindUI 1.6.66, with Game, Games List and Settings only.
 local env = getgenv()
 local runtime = env.LUBRuntime
 local source = game:HttpGet("https://github.com/Footagesus/WindUI/releases/download/1.6.66/main.lua")
 local library, compileError = loadstring(source, "@WindUI/1.6.66")
 assert(library, "LUB: WindUI could not compile: " .. tostring(compileError))
 local WindUI = library()
+-- Executor UI containers can require Plugin capability in later callbacks.
+-- Use WindUI's supported parent API before it creates the window controls.
+WindUI:SetParent(game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui"))
 runtime.disconnectUI = function() WindUI.Creator.DisconnectAll() end
 runtime.uiRoots = {}
 for _, name in ipairs({"ScreenGui", "NotificationGui", "DropdownGui", "TooltipGui"}) do

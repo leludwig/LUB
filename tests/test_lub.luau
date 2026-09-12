@@ -166,6 +166,7 @@ local function setup(options)
     globals.workspace.CurrentCamera = camera
     local storage = node("ReplicatedStorage")
     local player = node("Player", "TestPlayer")
+    node("PlayerGui", "PlayerGui", player)
     local services = {
         ReplicatedStorage = storage, Players = { LocalPlayer = player }, CoreGui = node("CoreGui"),
         UserInputService = node("UserInputService"), GuiService = node("GuiService"),
@@ -239,7 +240,7 @@ local function setup(options)
     end
     function state:egg(name) return node("Model", name, self.eggs) end
     function state:farmUI()
-        local gui = node("PlayerGui", "PlayerGui", player)
+        local gui = player.PlayerGui
         local main = node("ScreenGui", "Main", gui)
         local currencies = node("Folder", "Currencies", main)
         local cash = node("Folder", "Cash", currencies)
@@ -418,10 +419,16 @@ local function setup(options)
         return result
     end
     globals.TEST_WINDUI = {
+        SetParent = function(self, parent)
+            expect(parent == player.PlayerGui, "WindUI must use the player's accessible UI container")
+            for _, name in ipairs({"ScreenGui", "NotificationGui"}) do self[name].Parent = parent end
+            state.uiParent = parent
+        end,
         ScreenGui = node("ScreenGui", "WindUI", services.CoreGui),
         NotificationGui = node("ScreenGui", "WindUI Notifications", services.CoreGui),
         Creator = {DisconnectAll = function() state.uiDisconnected = true end},
         CreateWindow = function(_, config)
+            expect(state.uiParent == player.PlayerGui, "SetParent must run before window creation")
             local window = { Tabs = {}, Config = config, Closed = false }
             state.window = window
             function window:Tab(tabConfig)
@@ -533,7 +540,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.7.2" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.7.3" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -735,7 +742,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.7.2")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.7.3")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
