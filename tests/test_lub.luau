@@ -540,7 +540,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.7.4" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.8.0" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -742,7 +742,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.7.4")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.8.0")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -1058,6 +1058,8 @@ local function chef(options)
         local fish = node("Folder", "Fish", node("Folder", "Services", knit))
         local rf, re = node("Folder", "RF", fish), node("Folder", "RE", fish)
         local shared = node("Folder", "Shared", storage)
+        node("ModuleScript", "FishIndex", shared).Module = {
+            salmon = {name="Salmon"}, tuna = {name="Tuna"}, bluefin_tuna = {name="Bluefin Tuna"}, anchovy = {name="Anchovy"} }
         node("ModuleScript", "FishingCastValidator", shared).Module = {
             CanCastFromCharacter = function() return not options.invalidSpot end }
         node("ModuleScript", "CookingConfig", node("Folder", "Modules", storage)).Module = {
@@ -1485,6 +1487,46 @@ test("WindUI Close capability failure removes owned UI and does not mask startup
     expect(not failed.globals.LUBRuntime.alive and failed.uiDisconnected)
     local upgraded = setup({legacy=true, failLegacyCleanup=true})
     expect(upgraded.globals.LUBRuntime.alive and upgraded.legacyStopped)
+end)
+
+test("Fishing Chef prepares the fish requested by the customer instead of existing wrong plates", function()
+    local s = chef({order="Sushi", stallLevel=2})
+    s.npc:SetAttribute("OrderText", "Tuna Sushi")
+    table.insert(s.profile.Fish, {ID=78, Name="tuna"})
+    s.profile.Plates = {{ID="old", Name="Sushi", CF="salmon", Data=4}}
+    -- Mirror the server's matching by fish as well as recipe.
+    local re = s.services.ReplicatedStorage.Packages.Knit.Services.Fish.RE
+    re.StoreFood.FireServer = function(_, npc)
+        expect(npc == s.npc)
+        local index
+        for i, plate in ipairs(s.profile.Plates) do if plate.Name == "Sushi" and plate.CF == "tuna" then index = i end end
+        expect(index, "Attempted to serve the wrong fish")
+        table.remove(s.profile.Plates, index)
+        table.insert(s.feeds, npc)
+        s.profile.NightMarket.CustomersServedTotal += 1
+        npc:SetAttribute("Despawn", true)
+    end
+    s:click("Autofarm"); s:advance(10)
+    expect(s.lastCut == 78 and #s.dishes == 1 and s.dishes[1].item.CF == "tuna")
+    expect(#s.feeds == 1 and s.profile.Plates[1].CF == "salmon" and s.profile.Fish[1].ID == 77)
+end)
+
+test("Fishing Chef matches multiword fish labels to current Perfect filets", function()
+    local s = chef({order="Sushi", stallLevel=2})
+    s.npc:SetAttribute("OrderText", "Bluefin Tuna Sushi")
+    s.items = {{ID=31, Name="Fish Filet", CF="salmon", Data=4}, {ID=32, Name="Fish Filet", CF="bluefin_tuna", Data=4}}
+    s:click("Autofarm"); s:advance(1)
+    expect(#s.dishes == 1 and s.dishes[1].item.CF == "bluefin_tuna" and not s.lastCut)
+end)
+
+test("Fishing Chef cancels a changed fish request and never guesses unknown fish", function()
+    local s = chef({order="Sushi", stallLevel=2})
+    table.insert(s.profile.Fish, {ID=78, Name="tuna"})
+    s.npc:SetAttribute("OrderText", "Tuna Sushi")
+    s:click("Autofarm"); s:advance(0.5)
+    s.npc:SetAttribute("OrderText", "Unknown Fish Sushi")
+    s:advance(10)
+    expect(not s.lastCut and #s.dishes == 0 and #s.feeds == 0 and not s.castCount)
 end)
 
 print(string.format("%d behavioral tests passed", passed))

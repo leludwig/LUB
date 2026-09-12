@@ -10,6 +10,7 @@ return function(tab)
     local data = knit.GetController("DataController")
     local validator = require(rs.Shared.FishingCastValidator)
     local recipes = require(rs.Modules.CookingConfig)
+    local fishIndex = require(rs.Shared.FishIndex)
     local remotes = rs.Packages.Knit.Services.Fish
     local enabled, generation, worker = false, 0, false
     local mode, selectedRecipe = "farm", "Nigiri"
@@ -90,9 +91,10 @@ return function(tab)
         local favorites = data:GetData(key) or {}
         return favorites[id] or favorites[tostring(id)]
     end
-    local function fishFor(recipe)
+    local function fishFor(recipe, requiredFish)
         for _, item in ipairs(data:GetData("Fish") or {}) do
             if item.ID ~= nil and not favorite("FavoriteFish", item.ID)
+                and (not requiredFish or item.Name == requiredFish)
                 and (not recipe.RequiredFish or recipe.RequiredFish[item.Name]) then return item end
         end
     end
@@ -110,40 +112,66 @@ return function(tab)
         -- Dish presentation clamps Data to 1..4, including Sashimi.
         return type(item.Data) == "number" and item.Data >= 4
     end
-    local function orderValid(npc, name)
+    local function normalize(text)
+        return type(text) == "string" and text:lower():gsub("[%s_%-]+", "") or ""
+    end
+    local function order(npc)
+        local raw = npc:GetAttribute("Order")
+        local text = npc:GetAttribute("OrderText") or raw
+        if type(raw) ~= "string" or type(text) ~= "string" then return end
+        local name = recipes[raw] and raw
+        if not name then
+            for recipe in pairs(recipes) do
+                if text:sub(-#recipe) == recipe and (not name or #recipe > #name) then name = recipe end
+            end
+        end
+        if not name then return end
+        if text == name then return name end
+        -- OrderText is the displayed order, e.g. "Bluefin Tuna Sushi".
+        -- Unknown fish labels must never fall back to an arbitrary ingredient.
+        local suffix = " " .. name
+        if text:sub(-#suffix) ~= suffix then return end
+        local label = normalize(text:sub(1, -#suffix - 1))
+        for id, fish in pairs(fishIndex) do
+            if type(fish) == "table" and (normalize(id) == label or normalize(fish.name) == label) then return name, id end
+        end
+    end
+    local function orderValid(npc, name, requiredFish)
+        local currentName, currentFish = order(npc)
         local owner = npc and npc:FindFirstChild("Owner")
         return npc and npc.Parent and owner and owner.Value == player.Name
             and npc:GetAttribute("Arrived") and not npc:GetAttribute("Despawn")
-            and npc:GetAttribute("WaitingForFood") ~= false and npc:GetAttribute("Order") == name
+            and npc:GetAttribute("WaitingForFood") ~= false and currentName == name and currentFish == requiredFish
     end
     local function customers()
         local result = {}
         for _, npc in ipairs(workspace.Code.ActiveNPCs:GetChildren()) do
-            local name = npc:GetAttribute("Order")
-            if recipes[name] and orderValid(npc, name) then table.insert(result, npc) end
+            local name, requiredFish = order(npc)
+            if name and orderValid(npc, name, requiredFish) then table.insert(result, npc) end
         end
         return result
     end
-    local function plateFor(name)
+    local function plateFor(name, requiredFish)
         local selected
         for _, plate in ipairs(data:GetData("Plates") or {}) do
             if plate.Name == name then
                 -- StoreFood chooses the plate on the server, so do not serve a
                 -- recipe with a protected plate when selection is ambiguous.
                 if favorite("FavoritePlates", plate.ID) then return nil, true end
-                selected = selected or plate
+                if not requiredFish or plate.CF == requiredFish then selected = selected or plate end
             end
         end
         return selected, false
     end
     local function serve(token, npc)
-        local name = npc:GetAttribute("Order")
+        local name, requiredFish = order(npc)
+        if not name then return false end
         show("Serving " .. name)
         check(token)
         local owner = npc:FindFirstChild("Owner")
         if not npc.Parent or not owner or owner.Value ~= player.Name
             or npc:GetAttribute("Despawn") or npc:GetAttribute("WaitingForFood") == false
-            or npc:GetAttribute("Order") ~= name or not plateFor(name) then return false end
+            or not orderValid(npc, name, requiredFish) or not plateFor(name, requiredFish) then return false end
         local before = (data:GetData("NightMarket") or {}).CustomersServedTotal or 0
         fire(token, "StoreFood", npc)
         for _ = 1, 30 do
@@ -203,10 +231,10 @@ return function(tab)
         state.caught += gained
         stopFishing()
     end
-    local function cook(token, name, npc)
+    local function cook(token, name, npc, requiredFish)
         local function checkOrder()
             check(token)
-            if npc and (player:GetAttribute("ROPEN") ~= true or not orderValid(npc, name)) then error(cancelled, 0) end
+            if npc and (player:GetAttribute("ROPEN") ~= true or not orderValid(npc, name, requiredFish)) then error(cancelled, 0) end
         end
         checkOrder()
         local recipe = recipes[name]
@@ -214,12 +242,13 @@ return function(tab)
         local filet
         for _, item in ipairs(items or {}) do
             if item.Name == "Fish Filet" and perfect(item)
+                and (not requiredFish or item.CF == requiredFish)
                 and (not recipe.RequiredFish or recipe.RequiredFish[item.CF]) then filet = item; break end
         end
         checkOrder()
         local score
         if not filet then
-            local item = fishFor(recipe)
+            local item = fishFor(recipe, requiredFish)
             if not item then return false end
             show("Cutting " .. item.Name)
             local goals = invoke(token, "StartCutSession")
@@ -266,6 +295,7 @@ return function(tab)
             pause(token, 0.1)
             for _, plate in ipairs(data:GetData("Plates") or {}) do
                 if plate.Name == name and not before[plate.ID] then
+                    assert(plate.CF == fresh.CF, "Server returned a dish with a different fish. Stopped before serving.")
                     assert(perfect(plate), "Server returned a dish without confirmed Perfect quality. Stopped before serving.")
                     confirmed = true; break
                 end
@@ -296,13 +326,14 @@ return function(tab)
         end
         local waiting = customers()
         for _, npc in ipairs(waiting) do
-            if plateFor(npc:GetAttribute("Order")) and serve(token, npc) then return end
+            local name, requiredFish = order(npc)
+            if plateFor(name, requiredFish) and serve(token, npc) then return end
         end
         for _, npc in ipairs(waiting) do
-            local name = npc:GetAttribute("Order")
-            local plate, protected = plateFor(name)
+            local name, requiredFish = order(npc)
+            local plate, protected = plateFor(name, requiredFish)
             if available(name) and not plate and not protected then
-                if not cook(token, name, npc) then catch(token) end
+                if not cook(token, name, npc, requiredFish) then catch(token) end
                 return
             end
         end
