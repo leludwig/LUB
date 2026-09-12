@@ -11,11 +11,13 @@ return function(tab)
     local recipes = require(rs.Modules.CookingConfig)
     local remotes = rs.Packages.Knit.Services.Fish
     local enabled, generation, worker = false, 0, false
+    local mode, selectedRecipe = "farm", "Nigiri"
     local ownsFishing = false
     local cuttingBoard
     local activeCharacter
     local customSpot
-    local status, toggle
+    local status
+    local toggles = {}
     local state = { phase = "Stopped", caught = 0, cooked = 0, served = 0 }
     runtime.fishingChef = state
     local cancelled = {}
@@ -88,19 +90,24 @@ return function(tab)
     end
     local function available(name)
         local recipe = recipes[name]
-        -- Only Nigiri has a complete recorded cooking/serving sequence.
-        if name ~= "Nigiri" or not recipe then return false end
+        if not recipe then return false end
         local level = data:GetData("Level") or 1
         local stallLevel = plot().STALL:GetAttribute("Level") or 1
-        return level >= (recipe.PlayerLevel or 1) and stallLevel >= (recipe.StallLevel or 1)
+        if level < (recipe.PlayerLevel or 1) or stallLevel < (recipe.StallLevel or 1) then return false end
+        if recipe.RequiresQuest and not table.find(data:GetData("CompletedQuests") or {}, recipe.RequiresQuest) then return false end
+        return true
+    end
+    local function orderValid(npc, name)
+        local owner = npc and npc:FindFirstChild("Owner")
+        return npc and npc.Parent and owner and owner.Value == player.Name
+            and npc:GetAttribute("Arrived") and not npc:GetAttribute("Despawn")
+            and npc:GetAttribute("WaitingForFood") ~= false and npc:GetAttribute("Order") == name
     end
     local function customers()
         local result = {}
         for _, npc in ipairs(workspace.Code.ActiveNPCs:GetChildren()) do
-            local owner = npc:FindFirstChild("Owner")
-            if owner and owner.Value == player.Name and npc:GetAttribute("Arrived")
-                and not npc:GetAttribute("Despawn") and npc:GetAttribute("WaitingForFood") ~= false
-                and available(npc:GetAttribute("Order")) then table.insert(result, npc) end
+            local name = npc:GetAttribute("Order")
+            if recipes[name] and orderValid(npc, name) then table.insert(result, npc) end
         end
         return result
     end
@@ -140,6 +147,8 @@ return function(tab)
         if customSpot then
             move(token, customSpot)
             found = validator:CanCastFromCharacter(char)
+        elseif mode == "fish" and validator:CanCastFromCharacter(char) then
+            found = true
         else
             local origin = plot().BoatSpawnJetty.Position
             for angle = 0, 7 do
@@ -172,7 +181,12 @@ return function(tab)
         state.caught += gained
         pause(token, 0.5)
     end
-    local function cook(token, name)
+    local function cook(token, name, npc)
+        local function checkOrder()
+            check(token)
+            if npc and (player:GetAttribute("ROPEN") ~= true or not orderValid(npc, name)) then error(cancelled, 0) end
+        end
+        checkOrder()
         local recipe = recipes[name]
         local items = invoke(token, "RequestRestaurauntData")
         local filet
@@ -181,6 +195,7 @@ return function(tab)
         end
         local board = plot().STALL.CookingStation.CuttingBoard
         move(token, board.CFrame * CFrame.new(0, 3, 3))
+        checkOrder()
         local score
         if not filet then
             local item = fishFor(recipe)
@@ -204,6 +219,7 @@ return function(tab)
                 pause(token, 0.25)
             end
             stopCutting()
+            checkOrder()
             if favorite("FavoriteFish", item.ID) then return false end
             invoke(token, "CutFish", item.ID, score)
             items = invoke(token, "RequestRestaurauntData")
@@ -221,6 +237,8 @@ return function(tab)
                 and item.Name == "Fish Filet" then fresh = item; break end
         end
         if not fresh then return true end
+        checkOrder()
+        if not available(name) then return true end
         local before = {}
         for _, plate in ipairs(data:GetData("Plates") or {}) do before[plate.ID] = true end
         invoke(token, "Cook", name, fresh)
@@ -239,6 +257,18 @@ return function(tab)
     local function step(token)
         activeCharacter = character()
         assert(data:IsDataLoaded(), "Player data is not ready.")
+        if mode == "fish" then catch(token); return end
+        if mode == "cook" then
+            local name = selectedRecipe
+            if not available(name) then
+                show(name .. " is locked: check your level, stall and recipe quest")
+                pause(token, 2)
+            elseif not cook(token, name) then
+                show("Waiting for ingredients: " .. name)
+                pause(token, 2)
+            end
+            return
+        end
         if player:GetAttribute("ROPEN") ~= true then
             show("Open your restaurant to continue"); pause(token, 2); return
         end
@@ -246,18 +276,28 @@ return function(tab)
         for _, npc in ipairs(waiting) do
             if plateFor(npc:GetAttribute("Order")) and serve(token, npc) then return end
         end
-        local name = waiting[1] and waiting[1]:GetAttribute("Order") or "Nigiri"
-        local plate, protected = plateFor(name)
-        if plate or protected then show(protected and "Favorited Nigiri protected" or "Waiting for a Nigiri customer"); pause(token, 2); return end
-        if not cook(token, name) then catch(token) end
+        for _, npc in ipairs(waiting) do
+            local name = npc:GetAttribute("Order")
+            local plate, protected = plateFor(name)
+            if available(name) and not plate and not protected then
+                if not cook(token, name, npc) then catch(token) end
+                return
+            end
+        end
+        show(#waiting == 0 and "Waiting for a customer order" or "Waiting: orders locked, plates protected or serving pending")
+        pause(token, 2)
     end
-    function state.setEnabled(value)
+    function state.setMode(nextMode, value)
+        assert(nextMode == "farm" or nextMode == "fish" or nextMode == "cook", "Invalid mode")
+        if not value and mode ~= nextMode then return end
+        mode = nextMode
         enabled = value == true and runtime.alive
+        state.mode = enabled and mode or nil
         generation += 1
         if enabled and fishing:IsAutoFishEnabled() then ownsFishing = true end
         stopFishing()
         stopCutting()
-        if toggle then toggle:Set(enabled, false) end
+        for key, control in pairs(toggles) do control:Set(enabled and key == mode, false) end
         show(enabled and "Starting" or "Stopped")
         if worker or not enabled then return end
         worker = true
@@ -268,7 +308,7 @@ return function(tab)
                 stopFishing()
                 stopCutting()
                 if not ok and err ~= cancelled and generation == token and runtime.alive then
-                    state.setEnabled(false)
+                    state.setMode(mode, false)
                     show("Stopped: " .. tostring(err))
                     warn("LUB Fishing Chef: " .. tostring(err))
                 end
@@ -277,6 +317,7 @@ return function(tab)
             worker = false
         end)
     end
+    function state.setEnabled(value) state.setMode("farm", value) end
     table.insert(runtime.cleanups, function()
         enabled = false
         generation += 1
@@ -284,7 +325,17 @@ return function(tab)
         stopCutting()
     end)
     local section = tab:Section({Title = "Auto Farm", Opened = true})
-    toggle = section:Toggle({Title = "Autofarm", Value = false, Callback = state.setEnabled})
+    toggles.farm = section:Toggle({Title = "Autofarm", Value = false, Callback = state.setEnabled})
+    toggles.fish = section:Toggle({Title = "Auto Fish", Value = false, Callback = function(value) state.setMode("fish", value) end})
+    local names = {}
+    for name in pairs(recipes) do table.insert(names, name) end
+    table.sort(names)
+    section:Dropdown({Title = "Cook recipe", Values = names, Value = selectedRecipe, Multi = false, Callback = function(name)
+        if not runtime.alive or not recipes[name] then return end
+        selectedRecipe = name
+        if enabled and mode == "cook" then state.setMode("cook", true) end
+    end})
+    toggles.cook = section:Toggle({Title = "Auto Cook", Value = false, Callback = function(value) state.setMode("cook", value) end})
     status = section:Paragraph({Title = "Farm Status", Desc = "Stopped"})
     section:Button({Title = "Set fishing spot", Desc = "Use your current position and facing direction for this session.", Callback = function()
         if not runtime.alive then return end
@@ -294,7 +345,7 @@ return function(tab)
         customSpot = root.CFrame
         show("Fishing spot saved for this session")
     end})
-    section:Paragraph({Title = "Full routine", Desc = "Fish, cut, cook Nigiri and serve your own Nigiri customers. Favorites and pond fish stay protected. Open your restaurant and enable Autofarm."})
+    section:Paragraph({Title = "Full routine", Desc = "Autofarm prepares your customers' orders, fishing when needed. Auto Fish only fishes. Auto Cook repeatedly prepares the selected recipe from inventory, without fishing or serving. One mode runs at a time. Recipes need their normal unlocks and ingredients; favorites stay protected."})
     show("Stopped")
     -- Start explicitly: loading a new game module must not consume inventory.
 end

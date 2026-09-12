@@ -722,7 +722,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.5.0")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.6.0")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -991,7 +991,7 @@ local function chef(options)
         own:SetAttribute("Owner", player.Name)
         node("Part", "BoatSpawnJetty", own).Position = g.Vector3.zero
         local stall = node("Model", "STALL", own)
-        stall:SetAttribute("Level", 1)
+        stall:SetAttribute("Level", options.stallLevel or 1)
         local board = node("Part", "CuttingBoard", node("Model", "CookingStation", stall))
         board.CFrame = g.CFrame.new(g.Vector3.zero)
         local npcs = node("Folder", "ActiveNPCs", code)
@@ -1007,7 +1007,7 @@ local function chef(options)
         s.profile = { Fish = options.empty and {} or {{ID = 77, Name = "salmon", Weight = 4}},
             FishCaught = 12, Plates = {}, FavoriteFish = options.favorite and {["77"] = true} or {},
             FavoritePlates = {}, FishPond = {{ID = 999, Name = "tuna"}}, Level = 3,
-            NightMarket = {CustomersServedTotal = 0} }
+            CompletedQuests = {}, NightMarket = {CustomersServedTotal = 0} }
         s.items, s.cuts, s.dishes, s.feeds = {}, {}, {}, {}
         local controller = { GetData = function(_, key) return s.profile[key] end,
             IsDataLoaded = function() return true end }
@@ -1037,7 +1037,10 @@ local function chef(options)
             CanCastFromCharacter = function() return not options.invalidSpot end }
         node("ModuleScript", "CookingConfig", node("Folder", "Modules", storage)).Module = {
             Nigiri = {EstTime = 7, StallLevel = 1, Tool = "Nigiri Plate"},
-            Sashimi = {EstTime = 10, Sashimi = true, PlayerLevel = 3} }
+            Sashimi = {EstTime = 10, Sashimi = true, PlayerLevel = 3},
+            Sushi = {EstTime = 20, Rolling = true, Cutting = "SushiLong", StallLevel = 2},
+            ["Grilled Snapper"] = {EstTime = 20, Stove = true, StallLevel = 3, RequiredFish = {redsnapper = true}},
+            ["Shrimp Tempura"] = {EstTime = 20, Stove = true, StallLevel = 3, RequiresQuest = 150, RequiredFish = {shrimp = true}} }
         local function remote(name, fn)
             node("RemoteFunction", name, rf).InvokeServer = function(_, ...)
                 table.insert(s.calls, {action = name, at = s.now})
@@ -1066,20 +1069,24 @@ local function chef(options)
             error("Fish no longer exists")
         end)
         remote("Cook", function(name, item)
-            assert(name == "Nigiri" and table.find(s.items, item), "Cook must use current server item")
+            assert(table.find(s.items, item), "Cook must use current server item")
             table.insert(s.dishes, {name=name, item=item, at=s.now})
             table.remove(s.items, table.find(s.items, item))
             if not options.rejectCook then
                 table.insert(s.profile.Plates, {Name=name, ID="P" .. #s.dishes, CF=item.CF, Value=330})
             end
-            return "Cooked meal Nigiri"
+            return "Cooked meal " .. name
         end)
         node("RemoteEvent", "StoreFood", re).FireServer = function(_, npc, ...)
             assert(select("#", ...) == 0, "StoreFood only takes an NPC")
             assert(npc.Owner.Value == player.Name, "Foreign customer")
-            assert(#s.profile.Plates > 0, "Serving without a plate")
+            local matched
+            for index, plate in ipairs(s.profile.Plates) do
+                if plate.Name == npc:GetAttribute("Order") then matched = index; break end
+            end
+            assert(matched, "Serving without the ordered plate")
             table.insert(s.feeds, npc)
-            table.remove(s.profile.Plates, 1)
+            table.remove(s.profile.Plates, matched)
             s.profile.NightMarket.CustomersServedTotal += 1
             npc:SetAttribute("Despawn", true)
         end
@@ -1104,9 +1111,9 @@ test("Fishing Chef protects favorites and ignores foreign customers", function()
     local s = chef({favorite=true, foreign=true})
     s:click("Autofarm"); s:advance(20)
     expect(s.profile.Fish[1].ID == 77 and s.lastCut ~= 77)
-    expect(#s.dishes == 1 and #s.feeds == 0)
+    expect(#s.dishes == 0 and #s.feeds == 0 and not s.autoStarts)
     s:advance(20)
-    expect(#s.dishes == 1, "Unbounded cooking with no customers")
+    expect(#s.dishes == 0, "Cooking with no owned customer order")
 end)
 
 test("Fishing Chef never consumes or replaces a favorited plate", function()
@@ -1137,14 +1144,14 @@ test("Fishing Chef unload during a remote response prevents subsequent actions",
     expect(#s.calls == count and #s.cuts == 0 and #s.dishes == 0)
 end)
 
-test("Fishing Chef closed restaurant and unsupported recipes do not get served", function()
+test("Fishing Chef waits for opening then prepares the ordered Sashimi", function()
     local s = chef({closed=true})
     s:click("Autofarm"); s:advance(20)
     expect(#s.calls == 0)
     s.services.Players.LocalPlayer:SetAttribute("ROPEN", true)
     s.npc:SetAttribute("Order", "Sashimi")
     s:advance(20)
-    expect(#s.dishes == 1 and #s.feeds == 0 and s.dishes[1].name == "Nigiri")
+    expect(#s.dishes == 1 and #s.feeds == 1 and s.dishes[1].name == "Sashimi")
 end)
 
 test("Fishing Chef rechecks owner after travelling to customer", function()
@@ -1194,6 +1201,79 @@ test("Fishing Chef cancels preparation when the character is replaced", function
     s.services.Players.LocalPlayer.Character = s.node("Model", "NewCharacter")
     s:advance(10)
     expect(not s:find("Autofarm").Value and #s.dishes == 0 and not s.cutting)
+end)
+
+test("Fishing Chef cancels stale orders before consuming fish or cooking", function()
+    for _, seconds in ipairs({0.7, 5}) do
+        local s = chef()
+        s:click("Autofarm"); s:advance(seconds)
+        s.npc:SetAttribute("Despawn", true)
+        s:advance(25)
+        expect(#s.dishes == 0 and #s.feeds == 0 and not s.autoStarts)
+        if seconds < 1 then expect(not s.lastCut) end
+        expect(s:find("Autofarm").Value, "A cancelled order must not disable the mode")
+    end
+end)
+
+test("Fishing Chef fish-only works with a closed restaurant and never cooks", function()
+    local s = chef({closed=true})
+    s:click("Auto Fish"); s:advance(15)
+    expect(s.globals.LUBRuntime.fishingChef.caught >= 2)
+    expect(#s.calls == 0 and #s.dishes == 0 and #s.feeds == 0)
+    s:click("Auto Fish"); s:advance(3)
+    expect(not s.autoEnabled and not s:find("Auto Fish").Value)
+end)
+
+test("Fishing Chef cook-only repeats selected dishes without serving or fishing", function()
+    local s = chef({closed=true})
+    table.insert(s.profile.Fish, {ID=78, Name="salmon"})
+    s:find("Cook recipe"):Set("Sashimi")
+    s:click("Auto Cook"); s:advance(40)
+    expect(#s.dishes == 2 and s.dishes[1].name == "Sashimi" and s.dishes[2].name == "Sashimi")
+    expect(#s.feeds == 0 and not s.autoStarts)
+    s:advance(20)
+    expect(#s.dishes == 2 and s:find("Auto Cook").Value)
+end)
+
+test("Fishing Chef mode and recipe switches cancel pending work", function()
+    local s = chef()
+    s:click("Auto Cook"); s:advance(5)
+    s:find("Cook recipe"):Set("Sashimi"); s:advance(20)
+    expect(#s.dishes == 1 and s.dishes[1].name == "Sashimi")
+    s:click("Auto Fish"); s:advance(1)
+    expect(not s:find("Auto Cook").Value and not s:find("Autofarm").Value and s:find("Auto Fish").Value)
+    s:click("Autofarm"); s:advance(0)
+    expect(not s.autoEnabled and not s:find("Auto Fish").Value)
+    s:click("Unload LUB"); local count = #s.calls; s:advance(30)
+    expect(#s.calls == count and not s.autoEnabled and not s.cutting)
+end)
+
+test("Fishing Chef unlocks Sushi by stall level and cooks the customer order", function()
+    local s = chef({order="Sushi", stallLevel=1})
+    s:click("Autofarm"); s:advance(25)
+    expect(#s.calls == 0 and not s.autoStarts)
+    s.globals.workspace.Code.Plots.TestPlayer.STALL:SetAttribute("Level", 2)
+    s:advance(30)
+    expect(#s.dishes == 1 and s.dishes[1].name == "Sushi" and #s.feeds == 1)
+end)
+
+test("Fishing Chef checks stove recipe quests and required fish", function()
+    local s = chef({stallLevel=3})
+    s:find("Cook recipe"):Set("Shrimp Tempura"); s:click("Auto Cook"); s:advance(25)
+    expect(#s.calls == 0)
+    table.insert(s.profile.CompletedQuests, 150)
+    s:advance(5)
+    expect(not s.lastCut and not s.autoStarts, "Must not substitute salmon for shrimp")
+    table.insert(s.profile.Fish, {ID=78, Name="shrimp"})
+    s:advance(30)
+    expect(s.lastCut == 78 and s.dishes[1].name == "Shrimp Tempura" and #s.feeds == 0)
+    expect(s.profile.Fish[1].ID == 77)
+end)
+
+test("Fishing Chef cook-only preserves favorited fish", function()
+    local s = chef({favorite=true})
+    s:click("Auto Cook"); s:advance(30)
+    expect(#s.dishes == 0 and not s.lastCut and not s.autoStarts and s.profile.Fish[1].ID == 77)
 end)
 
 print(string.format("%d behavioral tests passed", passed))
