@@ -540,7 +540,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.9.0" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.9.1" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -742,7 +742,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.9.0")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.9.1")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -1086,7 +1086,7 @@ local function chef(options)
             if response then s.backpackEnabled = false; player:SetAttribute("Backpack", false) end
         end)
         remote("CastRequest", function(power, ...)
-            assert(select("#", ...) == 0 and power > 0 and power <= 1, "CastRequest only accepts cast strength")
+            assert(select("#", ...) == 0 and power == 1, "Every cast must request 100% Perfect strength")
             assert(not s.castPending, "Overlapping fishing sessions")
             s.castPending = true
             s.castCount = (s.castCount or 0) + 1

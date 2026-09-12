@@ -48,7 +48,7 @@ Für die Prompt-Aktionen benötigt die Ausführungsumgebung `fireproximityprompt
 
 ## Fishing Chef · 88599461076137
 
-Version 2.9.0 bietet unter **Game → Auto Farm** unabhängig zuschaltbares Auto Fish. Es läuft parallel zu Auto Cook oder Autofarm. Nur Auto Cook und Autofarm schließen sich gegenseitig aus. Alle Schalter starten ausgeschaltet; das Abschalten eines Bereichs lässt den anderen weiterlaufen. Unload LUB beendet beide Abläufe.
+Version 2.9.1 bietet unter **Game → Auto Farm** unabhängig zuschaltbares Auto Fish. Es läuft parallel zu Auto Cook oder Autofarm. Nur Auto Cook und Autofarm schließen sich gegenseitig aus. Alle Schalter starten ausgeschaltet; das Abschalten eines Bereichs lässt den anderen weiterlaufen. Unload LUB beendet beide Abläufe.
 
 - **Autofarm:** prüft zuerst eigene wartende Kunden und deren Bestellung. Passende fertige Gerichte werden serviert; andernfalls wird das bestellte Gericht zubereitet und bei fehlendem Fisch geangelt. Ohne Kundenbestellung wird nichts auf Vorrat gekocht. Das Restaurant muss geöffnet sein.
 - **Auto Fish:** angelt ausschließlich, auch bei geschlossenem Restaurant. Ein gültiger aktueller Angelplatz wird direkt genutzt; eine Angel muss im Rucksack oder ausgerüstet sein.
@@ -100,7 +100,7 @@ Bei einem unbekannten Spiel zeigt der Game-Tab **Game not supported** mit der ak
 
 WindUI lässt sich mit **Insert (Einfg)** aus- und einblenden. Die kleine **LUB**-Schaltfläche öffnet das Fenster ebenfalls.
 
-Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Chicken Farm und Sell Ores haben getrennte gespeicherte Einstellungen; Fishing Chef wird pro Sitzung gestartet; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.9.0; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
+Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Chicken Farm und Sell Ores haben getrennte gespeicherte Einstellungen; Fishing Chef wird pro Sitzung gestartet; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.9.1; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
 
 Optional kann die Startdatei lokal als `LUB/LUB.lua` im Workspace der Ausführungsumgebung abgelegt und so ausgeführt werden:
 
@@ -147,3 +147,5 @@ Das Sell-Ores-Modul stammt aus dem vom Nutzer bereitgestellten Skript von **selt
 WindUI-Cleanup ab 2.7.2: Fehler der Schließanimation unter eingeschränkten Executor-Callbacks unterbrechen das Aufräumen nicht mehr. LUB versucht dann, nur die GUI-Wurzeln seiner eigenen WindUI-Instanz direkt zu entfernen und ihre Verbindungen zu lösen. Falls auch das nicht erlaubt ist, wird der Fehler gemeldet. Ein ursprünglicher Startfehler bleibt als LUB startup error sichtbar. Das Verhalten wurde mit simulierten Capability-Fehlern getestet; die konkrete Executor-Sitzung ist noch nicht live geprüft.
 
 Version 2.7.3 setzt die WindUI-GUI-Wurzeln über SetParent vor dem Fensteraufbau in PlayerGui. Damit verwendet LUB für seine Oberfläche keinen geschützten Executor-UI-Container mehr. Die Tests prüfen die Zuordnung vor CreateWindow; die betroffene Live-Sitzung konnte hier nicht geprüft werden.
+
+Ab 2.9.1 sendet jeder Angelwurf CastRequest(1), entsprechend dem Maximum der spielinternen Ladekurve (100 Prozent, Perfect). Das gilt für Auto Fish und das bedarfsabhängige Angeln im Autofarm. Der Fang muss weiterhin vom Server bestätigt werden; ein perfekter Wurf erhöht nicht die Stärke der ausgerüsteten Angel.

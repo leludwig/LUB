@@ -227,7 +227,8 @@ return function(tab)
         local session = {token = token}
         castSession = session
         show("Casting via remote")
-        invoke(token, "CastRequest", 0.85373490388447)
+        -- The game's charge curve peaks at 1 (100%, Perfect).
+        invoke(token, "CastRequest", 1)
         for _ = 1, 50 do
             if session.received then break end
             pause(token, 0.1)
