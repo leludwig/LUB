@@ -142,7 +142,29 @@ return function(tab)
         throwDelay = math.clamp(tonumber(value) or 0, 0, 5)
         nextThrow = math.min(nextThrow, os.clock() + throwDelay)
     end})
-    addMode("Auto Equip Best Bubblets", 10, function()
+    addMode("Auto Equip Best Bubblets", 30, function()
+        local helpers = require(player.PlayerScripts.UI.Helpers.InventoryBubbletsTabHelpers)
+        local equip = require(player.PlayerScripts.UI.Controllers.Menus.BubbletEquipController)
+        local damage = require(game:GetService("ReplicatedStorage").Helpers.BubbletDamageAssembler).damageContribution
+        local equipped = equip.getConfirmedEquippedArray()
+        local count = helpers.getUnlockedSlotCount()
+        if count <= 0 then return end
+        local weakest = math.huge
+        for slot = 1, count do
+            local item = equipped[slot]
+            weakest = math.min(weakest, item and item.bubbletId ~= helpers.EMPTY_BUBBLET_ID_SENTINEL
+                and damage(item, item.level or 0) or 0)
+        end
+        local better = false
+        for _, item in ipairs(helpers.decodeLeveledCapturedBubblets()) do
+            if damage(item, item.level or 0) > weakest then better = true; break end
+        end
+        if not better then
+            for _, item in pairs(helpers.decodeBubbletStacks()) do
+                if item.count > 0 and damage(item, 0) > weakest then better = true; break end
+            end
+        end
+        if not better then return end
         local result = remotes.BubbletEquipBestRequest:InvokeServer()
         assert(type(result) == "table" and result.ok == true, "Equip Best was not confirmed")
     end)
@@ -150,16 +172,30 @@ return function(tab)
         bubbletSlots = math.clamp(math.floor(tonumber(value) or 6), 1, 12)
     end})
     addMode("Auto Upgrade Bubblets", 0.03, function(current)
-        -- One level per slot. Resume at the unpaid slot when cash runs out.
-        for _ = 1, bubbletSlots do
+        -- One in-flight request per slot; wait for the whole round before repeating.
+        local pending, failed, unpaid = 0, nil, nil
+        local start = nextBubbletSlot
+        for offset = 0, bubbletSlots - 1 do
             if not current() then return end
-            local slot = nextBubbletSlot % bubbletSlots
-            local result = remotes.BubbletLevelUpRequest:InvokeServer({target={slotIndex=slot, kind="equipped"}, mode="single"})
-            if not current() then return end
-            assert(type(result) == "table" and type(result.ok) == "boolean", "Invalid Bubblet upgrade response")
-            if not result.ok and result.error == "insufficient_cash" then return end
-            nextBubbletSlot = (slot + 1) % bubbletSlots
+            local slot = (start + offset) % bubbletSlots
+            pending += 1
+            task.spawn(function()
+                local ok, err = pcall(function()
+                    if not current() then return end
+                    local result = remotes.BubbletLevelUpRequest:InvokeServer({target={slotIndex=slot, kind="equipped"}, mode="single"})
+                    assert(type(result) == "table" and type(result.ok) == "boolean", "Invalid Bubblet upgrade response")
+                    if not result.ok and result.error == "insufficient_cash" then
+                        if unpaid == nil or offset < unpaid then unpaid = offset end
+                    end
+                end)
+                if not ok then failed = err end
+                pending -= 1
+            end)
         end
+        while pending > 0 do task.wait(0.01) end
+        if not current() then return end
+        nextBubbletSlot = (start + (unpaid or 0)) % bubbletSlots
+        if failed then error(failed) end
     end)
     local nextBoostAttempt = 0
     addMode("Auto Bubblet Boost", 1, function(current)

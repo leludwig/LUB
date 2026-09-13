@@ -527,7 +527,8 @@ local function setup(options)
 end
 
 local function test(name, fn)
-    fn()
+    local ok, err = pcall(fn)
+    if not ok then print("FAIL " .. name .. ": " .. tostring(err)); error(err) end
     passed = passed + 1
     print("PASS " .. name)
 end
@@ -540,7 +541,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.15.0" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.16.0" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -765,7 +766,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.15.0")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.16.0")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -1793,7 +1794,16 @@ local function bubbles(options)
         s.boostBase:SetAttribute("BaseIndex", 4)
         s.node("ModuleScript", "MapTags", storage).Module = {MapAttribute={BaseOwnerUserId="OwnerId", BaseIndex="BaseIndex"}}
         local menus = s.node("Folder", "Menus", s.node("Folder", "Controllers", s.node("Folder", "UI", scripts)))
+        s.equippedBubblets, s.capturedBubblets, s.bubbletStacks = {{bubbletId=1, level=0}}, {}, {{bubbletId=2, count=1}}
+        s.node("ModuleScript", "InventoryBubbletsTabHelpers", s.node("Folder", "Helpers", scripts.UI)).Module = {
+            getUnlockedSlotCount=function() return 1 end,
+            EMPTY_BUBBLET_ID_SENTINEL=-1,
+            decodeLeveledCapturedBubblets=function() return s.capturedBubblets end,
+            decodeBubbletStacks=function() return s.bubbletStacks end}
+        s.node("ModuleScript", "BubbletDamageAssembler", s.node("Folder", "Helpers", storage)).Module = {
+            damageContribution=function(item, level) return item.bubbletId * 10 + level end}
         s.node("ModuleScript", "BubbletEquipController", menus).Module = {
+            getConfirmedEquippedArray=function() return s.equippedBubblets end,
             getAssignedBase=function() return s.boostBase end,
             dispatchBoostAll=function(index)
                 expect(index == 4)
@@ -1812,6 +1822,7 @@ local function bubbles(options)
         s.node("RemoteFunction", "BubbletEquipBestRequest", remotes).InvokeServer = function(_, ...)
             expect(select("#", ...) == 0)
             s.best += 1
+            s.equippedBubblets = {{bubbletId=2, level=0}}
             return {ok=true}
         end
         s.node("RemoteFunction", "UpgradeRequest", remotes).InvokeServer = function(_, name, amount)
@@ -1906,8 +1917,11 @@ test("Pop Bubbles equips best Bubblets and cycles recorded upgrades independentl
     expect(s.best == 1 and #s.upgrades == 5 and #s.throws == 0)
     expect(table.concat(s.upgrades, ",") == "BubbleValue,BubbleSpawnRate,MaxBubbles,MultiPopChance,Luck")
     s:click("Auto Upgrades"); s:advance(11)
-    expect(#s.upgrades == 5 and s.best == 2)
-    s:click("Unload LUB"); s:advance(15)
+    expect(#s.upgrades == 5 and s.best == 1)
+    s:advance(30); expect(s.best == 1, "Equal Bubblets caused another equip")
+    s.capturedBubblets = {{bubbletId=1, level=20}}
+    s:advance(30); expect(s.best == 2, "Stronger leveled capture was ignored")
+    s:click("Unload LUB"); s:advance(35)
     expect(s.best == 2)
 end)
 
@@ -1947,17 +1961,17 @@ test("Pop Bubbles levels equipped Bubblets and cancels delayed follow-up slots",
     expect(table.concat(s.levelUps, ",") == "0,1,2,3,4,5")
     expect(s:find("Auto Upgrade Bubblets").Value, "An unavailable slot must not block the others")
     s:advance(0.09)
-    expect(#s.levelUps == 24, "Bubblet upgrades should recheck after one frame")
+    expect(#s.levelUps == 18, "Bubblet upgrades should recheck after one frame")
     s:click("Auto Upgrade Bubblets"); s:advance(6)
-    expect(#s.levelUps == 24)
+    expect(#s.levelUps == 18)
     s:find("Equipped Bubblet slots"):Set(8)
     s:click("Auto Upgrade Bubblets"); s:advance(0.005)
-    expect(#s.levelUps == 32 and s.levelUps[32] == 7, "Extra equipped slots were skipped")
+    expect(#s.levelUps == 26 and s.levelUps[26] == 7, "Extra equipped slots were skipped")
     s:click("Auto Upgrade Bubblets")
     local delayed = bubbles({delay=true})
     delayed:click("Auto Upgrade Bubblets"); delayed:advance(1)
     delayed:click("Unload LUB"); delayed:advance(5)
-    expect(#delayed.levelUps == 1)
+    expect(#delayed.levelUps == 6, "Unload must stop after the in-flight round")
 end)
 
 test("Pop Bubbles rebirth is opt-in retries unmet requirements and stops on unload", function()
@@ -2038,14 +2052,25 @@ test("Pop Bubbles resumes single-level upgrades at the unpaid slot for fair spen
     local s = bubbles()
     s.upgradeCash = 1
     s:click("Auto Upgrade Bubblets"); s:advance(0.005)
-    expect(table.concat(s.levelUps, ",") == "0,1")
+    expect(table.concat(s.levelUps, ",") == "0,1,2,3,4,5")
     s.upgradeCash = 1
-    s:advance(0.03)
-    expect(table.concat(s.levelUps, ",") == "0,1,1,2", "Restarted at slot zero instead of continuing")
+    s:advance(0.04)
+    expect(table.concat(s.levelUps, ",") == "0,1,2,3,4,5,1,2,3,4,5,0", "Restarted at slot zero instead of continuing")
+    s:advance(0.015)
     s:click("Auto Upgrade Bubblets")
     s.upgradeCash = 1
     s:click("Auto Upgrade Bubblets"); s:advance(0.03)
-    expect(s.levelUps[#s.levelUps-1] == 2 and s.levelUps[#s.levelUps] == 3)
+    expect(s.levelUps[13] == 2 and s.levelUps[14] == 3, table.concat(s.levelUps, ","))
+end)
+
+test("Pop Bubbles upgrades distinct slots concurrently without overlapping rounds", function()
+    local s = bubbles({delay=true})
+    s:click("Auto Upgrade Bubblets"); s:advance(2.9)
+    expect(#s.levelUps == 6, "Sequential requests or overlapping rounds")
+    s:advance(0.2)
+    expect(#s.levelUps == 12, "Next round waited for each slot separately")
+    s:click("Unload LUB"); s:advance(5)
+    expect(#s.levelUps == 12)
 end)
 
 test("Pop Bubbles routes native and held-input shots to nearest targets and restores aiming", function()
