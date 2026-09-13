@@ -540,7 +540,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.12.0" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.13.0" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -765,7 +765,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.12.0")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.13.0")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -1752,8 +1752,29 @@ local function bubbles(options)
         s:bubble(20,0,0)
         s:bubble(0,0,1,s.node("Folder", "ClientRenderedBubbles_other", s.globals.workspace))
         s.throws, s.collections, s.upgrades, s.best, s.levelUps = {}, {}, {}, 0, {}
+        local class = {}
+        class.__index = class
+        class.getTargetPosition = function() return s.globals.Vector3.new(0,0,-10) end
+        s.weapon = setmetatable({cachedRoot=player.Character.HumanoidRootPart, lastFireTime=-1, cachedFireRate=1/0.45}, class)
+        class.getInstance = function() return s.weapon end
+        class.throw = function(self, manual)
+            expect(manual == false, "Do not queue manual mouse-target shots")
+            if s.now-self.lastFireTime < 1/self.cachedFireRate then return end
+            local target = self:getTargetPosition(self.cachedRoot, false, manual)
+            local origin = self.cachedRoot.Position
+            local dx,dy,dz = target.X-origin.X,target.Y-origin.Y,target.Z-origin.Z
+            local distance = math.sqrt(dx*dx+dy*dy+dz*dz)
+            self.lastFireTime = s.now
+            s.spawned = true
+            remotes.ThrowWeapon:FireServer(s.globals.Vector3.new(dx/distance,dy/distance,dz/distance), "548788391_" .. s.now, true)
+            s.spawned = false
+        end
+        local scripts = s.node("Folder", "PlayerScripts", player)
+        s.node("ModuleScript", "WeaponController", s.node("Folder", "Weapon", scripts)).Module = {WeaponController=class}
+        s.globals.require = function(module) return assert(module.Module) end
         s.node("RemoteEvent", "ThrowWeapon", remotes).FireServer = function(_, direction, id, aim)
             expect(aim == true and id:find("548788391_",1,true) == 1)
+            expect(s.spawned, "Remote reported a local projectile that was never spawned")
             if options.reject then error("Throw rejected") end
             table.insert(s.throws, {direction=direction, id=id})
         end
@@ -1781,7 +1802,7 @@ local function bubbles(options)
             if options.delay then s.globals.task.wait(3) end
             return {success=s.rebirths > 1}
         end
-        for _, kind in ipairs({"Cash", "Gem"}) do
+        for _, kind in ipairs({"Cash", "Gem", "Essence"}) do
             s.node("RemoteEvent", kind .. "DropEvent", remotes)
             s.node("RemoteEvent", kind .. "DropCollect", remotes).FireServer = function(_, ids)
                 table.insert(s.collections, {kind=kind, ids=ids})
@@ -1909,6 +1930,43 @@ test("Pop Bubbles rebirth is opt-in retries unmet requirements and stops on unlo
     pending:click("Auto Rebirth"); pending:advance(1)
     pending:click("Unload LUB"); pending:advance(12)
     expect(pending.rebirths == 1)
+end)
+
+test("Pop Bubbles restores normal aiming after shots errors and respects weapon fire rate", function()
+    local s = bubbles()
+    local normal = s.weapon.getTargetPosition
+    s.weapon.cachedFireRate = 10
+    s:click("Autofarm"); s:advance(1)
+    expect(#s.throws >= 7 and #s.throws <= 11, "Artificial throw delay limited the weapon")
+    expect(rawget(s.weapon, "getTargetPosition") == nil and s.weapon.getTargetPosition == normal)
+    s.weapon.cachedFireRate = 1
+    local count = #s.throws
+    s:advance(0.5)
+    expect(#s.throws == count, "Bypassed upgraded weapon controller cooldown")
+    s:click("Autofarm"); s:advance(1)
+    expect(s.weapon:getTargetPosition().Z == -10)
+    local failed = bubbles({reject=true})
+    local existing = function() return failed.globals.Vector3.new(1,0,0) end
+    failed.weapon.getTargetPosition = existing
+    failed:click("Autofarm"); failed:advance(0.1)
+    expect(failed.weapon.getTargetPosition == existing, "Error left targeting overridden")
+end)
+
+test("Pop Bubbles collects live flames with farm or rebirth without duplicate requests", function()
+    local s = bubbles()
+    s:drop("Essence", {{kind="Spawn", dropId=16, lifetimeSeconds=180}})
+    s:click("Auto Rebirth"); s:advance(0.1)
+    expect(#s.collections == 1 and s.collections[1].kind == "Essence" and s.collections[1].ids[1] == 16)
+    s:click("Autofarm"); s:advance(0.2)
+    expect(#s.collections == 1)
+    s:drop("Essence", {{kind="Remove", dropId=16, reason="Collected"}})
+    s:advance(6)
+    expect(#s.collections == 1)
+    s:drop("Essence", {{kind="Spawn", dropId=17, lifetimeSeconds=180}})
+    s:advance(0.1)
+    expect(#s.collections == 2)
+    s:click("Unload LUB"); s:advance(10)
+    expect(#s.collections == 2)
 end)
 
 print(string.format("%d behavioral tests passed", passed))

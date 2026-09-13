@@ -3,10 +3,11 @@ return function(tab)
     local runtime = getgenv().LUBRuntime
     local player = game:GetService("Players").LocalPlayer
     local remotes = game:GetService("ReplicatedStorage").Remotes
-    local drops = {Cash = {}, Gem = {}}
+    local weaponClass = require(player.PlayerScripts.Weapon.WeaponController).WeaponController
+    local drops = {Cash = {}, Gem = {}, Essence = {}}
     local modes, controls = {}, {}
     local status
-    local throwDelay, nextThrow, throws = 0.45, 0, 0
+    local throwDelay, nextThrow, throws = 0, 0, 0
     local function show(message)
         if runtime.alive and status then status:SetDesc(message) end
     end
@@ -23,12 +24,26 @@ return function(tab)
             end
         end))
     end
+    local function collectDrops(onlyKind)
+        for kind, pending in pairs(drops) do
+            if onlyKind and kind ~= onlyKind then continue end
+            local ids = {}
+            for id, drop in pairs(pending) do
+                if os.clock() >= drop.expires then pending[id] = nil
+                elseif os.clock() >= drop.nextTry and #ids < 20 then
+                    table.insert(ids, id)
+                    drop.nextTry = os.clock() + 2
+                end
+            end
+            if #ids > 0 then remotes[kind .. "DropCollect"]:FireServer(ids) end
+        end
+    end
     local function farm()
         if os.clock() >= nextThrow then
             local char = player.Character
             local root = char and char:FindFirstChild("HumanoidRootPart")
             local folder = workspace:FindFirstChild("ClientRenderedBubbles_" .. player.UserId)
-            local direction, nearest
+            local target, nearest
             if root and folder then
                 for _, bubble in ipairs(folder:GetChildren()) do
                     -- Pivots can remain at the template origin while the visible
@@ -49,31 +64,32 @@ return function(tab)
                         local distance = math.sqrt(dx*dx + dy*dy + dz*dz)
                         if distance > 0.01 and (not nearest or distance < nearest) then
                             nearest = distance
-                            direction = Vector3.new(dx/distance, dy/distance, dz/distance)
+                            target = position
                         end
                     end
                 end
             end
-            if direction then
-                remotes.ThrowWeapon:FireServer(direction, tostring(player.UserId) .. "_" .. tostring(workspace:GetServerTimeNow()), true)
-                throws += 1
-                nextThrow = os.clock() + throwDelay
-                show("Throws sent: " .. throws .. " | Collecting Cash and Gems")
+            local weapon = weaponClass:getInstance()
+            if target and weapon and weapon.cachedRoot == root then
+                -- throw() synchronously creates the local projectile, reports it
+                -- to the server and invokes the game's hit-system callbacks.
+                -- Override only this call's target; leave manual/auto input intact.
+                local previous = rawget(weapon, "getTargetPosition")
+                local before = weapon.lastFireTime
+                weapon.getTargetPosition = function() return target end
+                local ok, err = pcall(weapon.throw, weapon, false)
+                weapon.getTargetPosition = previous
+                if not ok then error(err, 0) end
+                if weapon.lastFireTime ~= before then
+                    throws += 1
+                    nextThrow = os.clock() + throwDelay
+                    show("Throws fired: " .. throws .. " | Collecting Cash, Gems and Flames")
+                end
             else
                 show("Waiting for character and rendered bubbles")
             end
         end
-        for kind, pending in pairs(drops) do
-            local ids = {}
-            for id, drop in pairs(pending) do
-                if os.clock() >= drop.expires then pending[id] = nil
-                elseif os.clock() >= drop.nextTry and #ids < 20 then
-                    table.insert(ids, id)
-                    drop.nextTry = os.clock() + 2
-                end
-            end
-            if #ids > 0 then remotes[kind .. "DropCollect"]:FireServer(ids) end
-        end
+        collectDrops()
     end
     local section = tab:Section({Title = "Auto Farm", Opened = true})
     local function addMode(title, interval, action)
@@ -104,8 +120,8 @@ return function(tab)
         end})
     end
     addMode("Autofarm", 0.05, farm)
-    section:Slider({Title="Throw delay", Value={Min=0.25, Max=5, Default=0.45}, Step=0.05, Callback=function(value)
-        throwDelay = math.clamp(tonumber(value) or 0.45, 0.25, 5)
+    section:Slider({Title="Throw delay", Value={Min=0, Max=5, Default=0}, Step=0.05, Callback=function(value)
+        throwDelay = math.clamp(tonumber(value) or 0, 0, 5)
         nextThrow = math.min(nextThrow, os.clock() + throwDelay)
     end})
     addMode("Auto Equip Best Bubblets", 10, function()
@@ -132,6 +148,7 @@ return function(tab)
         end
     end)
     addMode("Auto Rebirth", 5, function(current)
+        collectDrops("Essence")
         local result = remotes.RebirthRequest:InvokeServer()
         if not current() then return end
         assert(type(result) == "table" and type(result.success) == "boolean", "Invalid rebirth response")
