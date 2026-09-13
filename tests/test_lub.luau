@@ -540,7 +540,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.11.0" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.12.0" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -765,7 +765,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.11.0")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.12.0")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -1742,12 +1742,16 @@ local function bubbles(options)
         function s:bubble(x,y,z,folder)
             local model = self.node("Model", "DefaultBubble", folder or self.folder)
             model.GetPivot = function() return {Position=self.globals.Vector3.new(x,y,z)} end
+            local part = self.node("Part", "Bubble", model)
+            part.Position = self.globals.Vector3.new(x,y,z)
+            part.Size = self.globals.Vector3.new(2,2,2)
+            part.Transparency = 0
             return model
         end
         s.near = s:bubble(0,10,0)
         s:bubble(20,0,0)
         s:bubble(0,0,1,s.node("Folder", "ClientRenderedBubbles_other", s.globals.workspace))
-        s.throws, s.collections, s.upgrades, s.best = {}, {}, {}, 0
+        s.throws, s.collections, s.upgrades, s.best, s.levelUps = {}, {}, {}, 0, {}
         s.node("RemoteEvent", "ThrowWeapon", remotes).FireServer = function(_, direction, id, aim)
             expect(aim == true and id:find("548788391_",1,true) == 1)
             if options.reject then error("Throw rejected") end
@@ -1764,6 +1768,19 @@ local function bubbles(options)
             if options.delay then s.globals.task.wait(3) end
             return {success=name ~= "BubbleValue", message="Insufficient cash"}
         end
+        s.node("RemoteFunction", "BubbletLevelUpRequest", remotes).InvokeServer = function(_, request)
+            expect(request.mode == "max" and request.target.kind == "equipped")
+            table.insert(s.levelUps, request.target.slotIndex)
+            if options.delay then s.globals.task.wait(3) end
+            return {ok=request.target.slotIndex ~= 1}
+        end
+        s.rebirths = 0
+        s.node("RemoteFunction", "RebirthRequest", remotes).InvokeServer = function(_, ...)
+            expect(select("#", ...) == 0)
+            s.rebirths += 1
+            if options.delay then s.globals.task.wait(3) end
+            return {success=s.rebirths > 1}
+        end
         for _, kind in ipairs({"Cash", "Gem"}) do
             s.node("RemoteEvent", kind .. "DropEvent", remotes)
             s.node("RemoteEvent", kind .. "DropCollect", remotes).FireServer = function(_, ids)
@@ -1779,7 +1796,7 @@ test("Pop Bubbles aims at own nearest rendered bubble and collects cash and gems
     expect(#s.throws == 0 and not s:find("Autofarm").Value)
     s:drop("Cash", {{kind="Spawn", dropId=1, lifetimeSeconds=60}})
     s:drop("Gem", {{kind="Spawn", dropId=2, lifetimeSeconds=60}})
-    s:click("Autofarm"); s:advance(0.5)
+    s:click("Autofarm"); s:advance(0.2)
     expect(#s.throws == 1 and s.throws[1].direction.Y == 1 and #s.collections == 2)
     s.near:Destroy()
     for _, batch in ipairs(s.collections) do expect(batch.ids[1] == (batch.kind == "Cash" and 1 or 2)) end
@@ -1814,7 +1831,7 @@ test("Pop Bubbles failed throws stop and rapid switches keep one worker", functi
     expect(s:find("Farm Status").Desc:find("Throw rejected",1,true))
     local active = bubbles()
     active:click("Autofarm"); active:click("Autofarm"); active:click("Autofarm"); active:advance(1)
-    expect(#active.throws == 1)
+    expect(#active.throws >= 2 and #active.throws <= 3)
 end)
 
 test("Pop Bubbles unload during an upgrade prevents later requests and disconnects", function()
@@ -1850,7 +1867,48 @@ test("Pop Bubbles waits for character and folder and accepts replacement models"
     expect(#s.throws == 0)
     s.folder.Parent = s.globals.workspace
     s:advance(1)
-    expect(#s.throws == 1)
+    expect(#s.throws >= 2 and #s.throws <= 3)
+end)
+
+test("Pop Bubbles aims at visible geometry instead of stale pivots and hidden pools", function()
+    local s = bubbles()
+    s.near.GetPivot = function() return {Position=s.globals.Vector3.new(0,0,-1)} end
+    local hidden = s:bubble(0,0,1)
+    hidden.Bubble.Transparency = 1
+    s:click("Autofarm"); s:advance(1.1)
+    expect(#s.throws >= 3 and #s.throws <= 4)
+    for _, throw in ipairs(s.throws) do expect(throw.direction.Y == 1) end
+    s.near.Bubble.Position = s.globals.Vector3.new(-5,0,0)
+    s:advance(0.5)
+    expect(s.throws[#s.throws].direction.X == -1)
+end)
+
+test("Pop Bubbles levels equipped Bubblets and cancels delayed follow-up slots", function()
+    local s = bubbles()
+    s:click("Auto Upgrade Bubblets"); s:advance(1)
+    expect(table.concat(s.levelUps, ",") == "0,1,2")
+    expect(s:find("Auto Upgrade Bubblets").Value, "An unavailable slot must not block the others")
+    s:click("Auto Upgrade Bubblets"); s:advance(6)
+    expect(#s.levelUps == 3)
+    local delayed = bubbles({delay=true})
+    delayed:click("Auto Upgrade Bubblets"); delayed:advance(1)
+    delayed:click("Unload LUB"); delayed:advance(5)
+    expect(#delayed.levelUps == 1)
+end)
+
+test("Pop Bubbles rebirth is opt-in retries unmet requirements and stops on unload", function()
+    local s = bubbles()
+    expect(not s:find("Auto Rebirth").Value and s.rebirths == 0)
+    s:click("Auto Rebirth"); s:advance(1)
+    expect(s.rebirths == 1 and s:find("Auto Rebirth").Value)
+    s:advance(5)
+    expect(s.rebirths == 2 and s:find("Farm Status").Desc == "Rebirth confirmed")
+    s:click("Auto Rebirth"); s:advance(10)
+    expect(s.rebirths == 2)
+    local pending = bubbles({delay=true})
+    pending:click("Auto Rebirth"); pending:advance(1)
+    pending:click("Unload LUB"); pending:advance(12)
+    expect(pending.rebirths == 1)
 end)
 
 print(string.format("%d behavioral tests passed", passed))

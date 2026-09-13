@@ -6,7 +6,7 @@ return function(tab)
     local drops = {Cash = {}, Gem = {}}
     local modes, controls = {}, {}
     local status
-    local throwDelay, nextThrow, throws = 2, 0, 0
+    local throwDelay, nextThrow, throws = 0.45, 0, 0
     local function show(message)
         if runtime.alive and status then status:SetDesc(message) end
     end
@@ -31,9 +31,19 @@ return function(tab)
             local direction, nearest
             if root and folder then
                 for _, bubble in ipairs(folder:GetChildren()) do
-                    local position
-                    if bubble:IsA("Model") then position = bubble:GetPivot().Position
-                    elseif bubble:IsA("BasePart") then position = bubble.Position end
+                    -- Pivots can remain at the template origin while the visible
+                    -- mesh moves. Aim at the largest visible part, excluding pools.
+                    local position, largest
+                    local parts = bubble:IsA("BasePart") and {bubble} or bubble:GetDescendants()
+                    for _, part in ipairs(parts) do
+                        if part:IsA("BasePart") and part.Transparency < 1 then
+                            local size = part.Size
+                            local volume = size.X * size.Y * size.Z
+                            if volume > 0 and (not largest or volume > largest) then
+                                largest, position = volume, part.Position
+                            end
+                        end
+                    end
                     if position then
                         local dx, dy, dz = position.X-root.Position.X, position.Y-root.Position.Y, position.Z-root.Position.Z
                         local distance = math.sqrt(dx*dx + dy*dy + dz*dz)
@@ -87,19 +97,29 @@ return function(tab)
                         warn("LUB Pop Bubbles: " .. tostring(err))
                     end
                     local finish = os.clock() + interval
-                    while current() and os.clock() < finish do task.wait(0.1) end
+                    while current() and os.clock() < finish do task.wait(math.min(0.05, finish - os.clock())) end
                 end
                 state.worker = false
             end)
         end})
     end
-    addMode("Autofarm", 0.25, farm)
-    section:Slider({Title="Throw delay", Value={Min=0.25, Max=5, Default=2}, Step=0.05, Callback=function(value)
-        throwDelay = math.clamp(tonumber(value) or 2, 0.25, 5)
+    addMode("Autofarm", 0.05, farm)
+    section:Slider({Title="Throw delay", Value={Min=0.25, Max=5, Default=0.45}, Step=0.05, Callback=function(value)
+        throwDelay = math.clamp(tonumber(value) or 0.45, 0.25, 5)
+        nextThrow = math.min(nextThrow, os.clock() + throwDelay)
     end})
     addMode("Auto Equip Best Bubblets", 10, function()
         local result = remotes.BubbletEquipBestRequest:InvokeServer()
         assert(type(result) == "table" and result.ok == true, "Equip Best was not confirmed")
+    end)
+    addMode("Auto Upgrade Bubblets", 5, function(current)
+        -- Slots 0, 1 and 2 are confirmed by the supplied level-up calls.
+        for slot = 0, 2 do
+            if not current() then return end
+            local result = remotes.BubbletLevelUpRequest:InvokeServer({target={slotIndex=slot, kind="equipped"}, mode="max"})
+            if not current() then return end
+            assert(type(result) == "table" and type(result.ok) == "boolean", "Invalid Bubblet upgrade response")
+        end
     end)
     local upgrades = {"BubbleValue", "BubbleSpawnRate", "MaxBubbles", "MultiPopChance", "Luck"}
     addMode("Auto Upgrades", 5, function(current)
@@ -110,6 +130,12 @@ return function(tab)
             assert(type(result) == "table" and type(result.success) == "boolean", "Invalid upgrade response")
             -- An unaffordable or maxed upgrade must not block other upgrades.
         end
+    end)
+    addMode("Auto Rebirth", 5, function(current)
+        local result = remotes.RebirthRequest:InvokeServer()
+        if not current() then return end
+        assert(type(result) == "table" and type(result.success) == "boolean", "Invalid rebirth response")
+        if result.success then show("Rebirth confirmed") end
     end)
     status = section:Paragraph({Title="Farm Status", Desc="Stopped"})
     table.insert(runtime.cleanups, function()
