@@ -69,8 +69,7 @@ return function(tab)
         observedFireTime = weapon.lastFireTime
         local original = weapon.getTargetPosition
         targetHook = function(self, root, flat, manual)
-            if not runtime.alive or not modes.Autofarm.enabled or manual
-                or self.isHoldingMouseButton or self.isHoldingGamepadTrigger then
+            if not runtime.alive or not modes.Autofarm.enabled then
                 return original(self, root, flat, manual)
             end
             if os.clock() < nextThrow then return nil end
@@ -161,6 +160,33 @@ return function(tab)
             if not result.ok and result.error == "insufficient_cash" then return end
             nextBubbletSlot = (slot + 1) % bubbletSlots
         end
+    end)
+    local nextBoostAttempt = 0
+    addMode("Auto Bubblet Boost", 1, function(current)
+        local expires = player:GetAttribute("BubbletBoostOwnerExpiresAt")
+        if type(expires) == "number" and expires > os.time() then return end
+        if os.clock() < nextBoostAttempt then return end
+        nextBoostAttempt = os.clock() + 5
+        local equip = require(player.PlayerScripts.UI.Controllers.Menus.BubbletEquipController)
+        local attributes = require(game:GetService("ReplicatedStorage").MapTags).MapAttribute
+        local base = equip.getAssignedBase()
+        if not base or not base.Parent or base:GetAttribute(attributes.BaseOwnerUserId) ~= player.UserId then return end
+        local index = base:GetAttribute(attributes.BaseIndex)
+        if type(index) ~= "number" then return end
+        local result = equip.dispatchBoostAll(math.floor(index))
+        if not current() then return end
+        assert(type(result) == "table" and type(result.ok) == "boolean", "Invalid boost response")
+        if not result.ok then
+            show(result.reason == "out_of_range" and "Boost: return near your base" or "Boost waiting: " .. tostring(result.reason))
+            return
+        end
+        for _ = 1, 50 do
+            if not current() then return end
+            local confirmed = player:GetAttribute("BubbletBoostOwnerExpiresAt")
+            if type(confirmed) == "number" and confirmed > os.time() then show("Bubblet boost renewed"); return end
+            task.wait(0.1)
+        end
+        if current() then error("Boost expiry was not confirmed") end
     end)
     local upgrades = {"BubbleValue", "BubbleSpawnRate", "MaxBubbles", "MultiPopChance", "Luck"}
     addMode("Auto Upgrades", 5, function(current)

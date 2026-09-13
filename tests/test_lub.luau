@@ -540,7 +540,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.14.0" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.15.0" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -765,7 +765,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.14.0")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.15.0")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -1786,6 +1786,23 @@ local function bubbles(options)
             return result
         end}}
         s.globals.require = function(module) return assert(module.Module) end
+        s.globals.os.time = function() return 1789320060 + math.floor(s.now) end
+        s.boosts = 0
+        s.boostBase = s.node("Model", "OwnBase", s.globals.workspace)
+        s.boostBase:SetAttribute("OwnerId", player.UserId)
+        s.boostBase:SetAttribute("BaseIndex", 4)
+        s.node("ModuleScript", "MapTags", storage).Module = {MapAttribute={BaseOwnerUserId="OwnerId", BaseIndex="BaseIndex"}}
+        local menus = s.node("Folder", "Menus", s.node("Folder", "Controllers", s.node("Folder", "UI", scripts)))
+        s.node("ModuleScript", "BubbletEquipController", menus).Module = {
+            getAssignedBase=function() return s.boostBase end,
+            dispatchBoostAll=function(index)
+                expect(index == 4)
+                s.boosts += 1
+                if options.delay then s.globals.task.wait(3) end
+                if options.boostOutOfRange then return {ok=false, reason="out_of_range"} end
+                player:SetAttribute("BubbletBoostOwnerExpiresAt", s.globals.os.time()+600)
+                return {ok=true}
+            end}
         s.node("RemoteEvent", "ThrowWeapon", remotes).FireServer = function(_, direction, id, aim)
             expect(aim == true and id:find("548788391_",1,true) == 1)
             expect(s.spawned, "Remote reported a local projectile that was never spawned")
@@ -2031,7 +2048,7 @@ test("Pop Bubbles resumes single-level upgrades at the unpaid slot for fair spen
     expect(s.levelUps[#s.levelUps-1] == 2 and s.levelUps[#s.levelUps] == 3)
 end)
 
-test("Pop Bubbles routes native automatic shots to live targets and restores manual aiming", function()
+test("Pop Bubbles routes native and held-input shots to nearest targets and restores aiming", function()
     local s = bubbles()
     s.weapon.isAutoThrowEnabled = true
     s:click("Autofarm"); s:advance(0.01)
@@ -2042,7 +2059,7 @@ test("Pop Bubbles routes native automatic shots to live targets and restores man
     s.weapon.isHoldingMouseButton = true
     s.weapon.lastFireTime = -100
     s.weapon:throw(false)
-    expect(s.throws[#s.throws].direction.Z == -1, "Manual aim was stolen")
+    expect(s.throws[#s.throws].direction.X == 1, "Held input bypassed Autofarm target")
     s.weapon.isHoldingMouseButton = false
     s:click("Unload LUB")
     expect(s.weapon.isAutoThrowEnabled and rawget(s.weapon, "getTargetPosition") == nil)
@@ -2059,6 +2076,40 @@ test("Pop Bubbles discovers existing own flames and does not requeue collected v
     s:advance(6)
     expect(#s.collections == 1, "Collection animation was mistaken for a new drop")
     flame:Destroy()
+end)
+
+test("Pop Bubbles renews only expired boosts and respects ownership distance and unload", function()
+    local s = bubbles()
+    local player = s.services.Players.LocalPlayer
+    player:SetAttribute("BubbletBoostOwnerExpiresAt", s.globals.os.time()+3)
+    s:click("Auto Bubblet Boost"); s:advance(2)
+    expect(s.boosts == 0)
+    s:advance(2)
+    expect(s.boosts == 1 and player:GetAttribute("BubbletBoostOwnerExpiresAt") > s.globals.os.time())
+    s:advance(10); expect(s.boosts == 1)
+    player:SetAttribute("BubbletBoostOwnerExpiresAt", 0)
+    s:advance(2); expect(s.boosts == 2)
+    s:click("Auto Bubblet Boost")
+    player:SetAttribute("BubbletBoostOwnerExpiresAt", 0)
+    s:advance(6); expect(s.boosts == 2)
+    local foreign = bubbles()
+    foreign.boostBase:SetAttribute("OwnerId", 999)
+    foreign:click("Auto Bubblet Boost"); foreign:advance(6); expect(foreign.boosts == 0)
+    local far = bubbles({boostOutOfRange=true})
+    far:click("Auto Bubblet Boost"); far:advance(4); expect(far.boosts == 1)
+    far:advance(2); expect(far.boosts == 2 and far:find("Auto Bubblet Boost").Value)
+    local pending = bubbles({delay=true})
+    pending:click("Auto Bubblet Boost"); pending:advance(1)
+    pending:click("Unload LUB"); pending:advance(10); expect(pending.boosts == 1)
+end)
+
+test("Pop Bubbles retargets the nearest bubble after the player moves", function()
+    local s = bubbles()
+    s:click("Autofarm"); s:advance(0.01)
+    expect(s.throws[1].direction.Y == 1)
+    s.weapon.cachedRoot.Position = s.globals.Vector3.new(19,0,0)
+    s:advance(0.5)
+    expect(s.throws[#s.throws].direction.X == 1 and s.throws[#s.throws].direction.Y == 0)
 end)
 
 print(string.format("%d behavioral tests passed", passed))
