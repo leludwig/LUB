@@ -84,6 +84,8 @@ Grundlage sind die bereitgestellten Cobalt-Logs und die zuvor ausgelesene Client
 
 ## Pop Bubbles · 72390882197205
 
+Für Fehleranalysen steht `diagnostics/pop-bubbles.lua` bereit. Es liest relevante Clientskripte, Controller- und Weltdaten, protokolliert mindestens 15 Sekunden ausgewählte eingehende Spielereignisse und speichert das Ergebnis als `LUB/PopBubbles-Diagnostic-<Zeit>.json` im Executor-Workspace sowie in der Zwischenablage. Währenddessen eine Flamme manuell sammeln und Autofarm ausprobieren. Das Diagnose-Skript selbst sendet keine Remotes und verändert keine Spieleinstellungen. Große Weltbäume und Ereignislisten werden begrenzt und im Bericht als gekürzt markiert; fehlende APIs werden als Fehler vermerkt. Den Bericht nur zur Diagnose teilen; er enthält Spielskripte und lokale Spielzustände.
+
 Ab 2.13.0 enthält LUB Pop Bubbles mit fünf unabhängig zuschaltbaren, zunächst ausgeschalteten Modi:
 
 - **Autofarm** zielt vom Charakter auf die nächste Bubble in `Workspace.ClientRenderedBubbles_<UserId>`. Die Position wird vor jedem Wurf vom Outer-Bauteil der Bubble gelesen, auch bei Transparency = 1. Nur Modelle ohne Outer verwenden das größte sichtbare Bauteil als Fallback. LUB ruft die vorhandene WeaponController-Instanz auf und ersetzt nur während des synchronen throw-Aufrufs dessen Zielposition. Der Controller erzeugt die lokale Waffe, ruft die Treffer-Callbacks auf und meldet den Wurf korrekt an den Server. Normales Zielen wird auch nach Fehlern wiederhergestellt. Der AutoAttack-Schalter bleibt unverändert. Der normale Wurf dreht die Figur zum Ziel. **Throw delay** ist eine zusätzliche Begrenzung (Standard 0); die tatsächliche maximale Feuerrate bestimmt der WeaponController.
