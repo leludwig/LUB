@@ -540,7 +540,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.10.1" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.11.0" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -558,6 +558,9 @@ test("WindUI has exactly three tabs and all registered games are listed and can 
     s:advance(31)
     s:click("Fishing Chef")
     expect(s.teleport == 88599461076137)
+    s:advance(31)
+    s:click("Pop Bubbles")
+    expect(s.teleport == 72390882197205)
     local section = s:find("Auto Farm")
     expect(section.Parent == s.window.Tabs[1])
     expect(section.Elements[1].Title == "Autofarm" and section.Elements[2].Title == "Collect Eggs Only")
@@ -762,7 +765,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.10.1")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.11.0")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -1725,6 +1728,129 @@ test("Fishing Chef unload during buying prevents equipping and further purchases
     expect(#s.buys == 1)
     s:click("Unload LUB"); s:advance(15)
     expect(#s.buys == 1 and #s.equips == 0)
+end)
+
+local function bubbles(options)
+    options = options or {}
+    return setup({place=72390882197205, prepare=function(s, player, storage)
+        local remotes = s.node("Folder", "Remotes", storage)
+        player.UserId = 548788391
+        player.Character = s.node("Model", "Character")
+        s.node("Part", "HumanoidRootPart", player.Character).Position = s.globals.Vector3.new(0,0,0)
+        s.globals.workspace.GetServerTimeNow = function() return 1789320060 + s.now end
+        s.folder = s.node("Folder", "ClientRenderedBubbles_548788391", s.globals.workspace)
+        function s:bubble(x,y,z,folder)
+            local model = self.node("Model", "DefaultBubble", folder or self.folder)
+            model.GetPivot = function() return {Position=self.globals.Vector3.new(x,y,z)} end
+            return model
+        end
+        s.near = s:bubble(0,10,0)
+        s:bubble(20,0,0)
+        s:bubble(0,0,1,s.node("Folder", "ClientRenderedBubbles_other", s.globals.workspace))
+        s.throws, s.collections, s.upgrades, s.best = {}, {}, {}, 0
+        s.node("RemoteEvent", "ThrowWeapon", remotes).FireServer = function(_, direction, id, aim)
+            expect(aim == true and id:find("548788391_",1,true) == 1)
+            if options.reject then error("Throw rejected") end
+            table.insert(s.throws, {direction=direction, id=id})
+        end
+        s.node("RemoteFunction", "BubbletEquipBestRequest", remotes).InvokeServer = function(_, ...)
+            expect(select("#", ...) == 0)
+            s.best += 1
+            return {ok=true}
+        end
+        s.node("RemoteFunction", "UpgradeRequest", remotes).InvokeServer = function(_, name, amount)
+            expect(amount == 1)
+            table.insert(s.upgrades, name)
+            if options.delay then s.globals.task.wait(3) end
+            return {success=name ~= "BubbleValue", message="Insufficient cash"}
+        end
+        for _, kind in ipairs({"Cash", "Gem"}) do
+            s.node("RemoteEvent", kind .. "DropEvent", remotes)
+            s.node("RemoteEvent", kind .. "DropCollect", remotes).FireServer = function(_, ids)
+                table.insert(s.collections, {kind=kind, ids=ids})
+            end
+        end
+        function s:drop(kind, records) remotes[kind .. "DropEvent"].OnClientEvent:Fire(records) end
+    end})
+end
+
+test("Pop Bubbles aims at own nearest rendered bubble and collects cash and gems", function()
+    local s = bubbles()
+    expect(#s.throws == 0 and not s:find("Autofarm").Value)
+    s:drop("Cash", {{kind="Spawn", dropId=1, lifetimeSeconds=60}})
+    s:drop("Gem", {{kind="Spawn", dropId=2, lifetimeSeconds=60}})
+    s:click("Autofarm"); s:advance(0.5)
+    expect(#s.throws == 1 and s.throws[1].direction.Y == 1 and #s.collections == 2)
+    s.near:Destroy()
+    for _, batch in ipairs(s.collections) do expect(batch.ids[1] == (batch.kind == "Cash" and 1 or 2)) end
+    s:drop("Cash", {{kind="Remove", dropId=1, reason="Collected"}})
+    s:drop("Gem", {{kind="Remove", dropId=2, reason="Collected"}})
+    s:advance(4)
+    expect(#s.collections == 2)
+    expect(s.throws[2].direction.X == 1 and s.throws[1].id ~= s.throws[2].id)
+    local count = #s.throws
+    s:click("Autofarm"); s:advance(0.5)
+    expect(#s.throws == count)
+end)
+
+test("Pop Bubbles bounds batches retries and expired drops", function()
+    local s = bubbles()
+    local records = {}
+    for id=1, 25 do table.insert(records, {kind="Spawn", dropId=id, lifetimeSeconds=1}) end
+    s:drop("Cash", records)
+    s:click("Autofarm"); s:advance(0.5)
+    expect(#s.collections == 2 and #s.collections[1].ids == 20 and #s.collections[2].ids == 5)
+    s:advance(5)
+    expect(#s.collections == 2, "Expired drops retried")
+    s:drop("Gem", {{kind="Spawn", dropId=30, lifetimeSeconds=60}})
+    s:advance(3)
+    expect(#s.collections == 4, "Retry interval should be two seconds")
+end)
+
+test("Pop Bubbles failed throws stop and rapid switches keep one worker", function()
+    local s = bubbles({reject=true})
+    s:click("Autofarm"); s:advance(1)
+    expect(not s:find("Autofarm").Value and #s.collections == 0)
+    expect(s:find("Farm Status").Desc:find("Throw rejected",1,true))
+    local active = bubbles()
+    active:click("Autofarm"); active:click("Autofarm"); active:click("Autofarm"); active:advance(1)
+    expect(#active.throws == 1)
+end)
+
+test("Pop Bubbles unload during an upgrade prevents later requests and disconnects", function()
+    local s = bubbles({delay=true})
+    s:click("Auto Upgrades"); s:advance(1)
+    s:click("Unload LUB"); s:advance(5)
+    expect(#s.upgrades == 1 and #s.throws == 0 and #s.collections == 0)
+    local event = s.services.ReplicatedStorage.Remotes.CashDropEvent.OnClientEvent
+    for _, listener in ipairs(event.listeners) do expect(not listener.connected) end
+end)
+
+test("Pop Bubbles equips best Bubblets and cycles recorded upgrades independently", function()
+    local s = bubbles()
+    s:click("Auto Equip Best Bubblets"); s:click("Auto Upgrades"); s:advance(1)
+    expect(s.best == 1 and #s.upgrades == 5 and #s.throws == 0)
+    expect(table.concat(s.upgrades, ",") == "BubbleValue,BubbleSpawnRate,MaxBubbles,MultiPopChance,Luck")
+    s:click("Auto Upgrades"); s:advance(11)
+    expect(#s.upgrades == 5 and s.best == 2)
+    s:click("Unload LUB"); s:advance(15)
+    expect(s.best == 2)
+end)
+
+test("Pop Bubbles waits for character and folder and accepts replacement models", function()
+    local s = bubbles()
+    local player = s.services.Players.LocalPlayer
+    local char = player.Character
+    player.Character = nil
+    s:click("Autofarm"); s:advance(3)
+    expect(#s.throws == 0)
+    player.Character = char
+    s.folder.Parent = nil
+    s:advance(3)
+    expect(#s.throws == 0)
+    s.folder.Parent = s.globals.workspace
+    s:advance(1)
+    expect(#s.throws == 1)
 end)
 
 print(string.format("%d behavioral tests passed", passed))

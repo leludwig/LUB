@@ -82,9 +82,20 @@ Version 2.7.4 nimmt die Beschleunigung des Schneidens zurück: LUB wartet wieder
 
 Grundlage sind die bereitgestellten Cobalt-Logs und die zuvor ausgelesene Clientstruktur. Der native Angelablauf wurde am eigenen Steg live bestätigt (Fangzähler 12 → 13). **Der neue vollständige Restaurantablauf wurde nur lokal mit simulierten Serverantworten getestet, noch nicht live bestätigt.** Der permanente GitHub-Startbefehl lädt diese Erweiterung aus `main`; denselben Befehl nach dem Update erneut ausführen.
 
+## Pop Bubbles · 72390882197205
+
+Ab 2.11.0 enthält LUB Pop Bubbles mit drei unabhängig zuschaltbaren, zunächst ausgeschalteten Modi:
+
+- **Autofarm** zielt vom Charakter auf die nächste Bubble in `Workspace.ClientRenderedBubbles_<UserId>`. Die Position wird vor jedem Wurf erneut aus dem Modell gelesen. `ThrowWeapon` erhält die normierte Richtung, eine neue Wurfkennung und das aufgezeichnete dritte Argument `true`. Der spielinterne AutoAttack-Schalter wird nicht verwendet. Die Figur wird nicht bewegt. **Throw delay** stellt den Abstand zwischen Würfen ein (Standard zwei Sekunden).
+- Cash- und Gem-Drops werden während Autofarm anhand der aktuellen Spawn-Meldungen eingesammelt. Entfernte oder abgelaufene Drops werden verworfen; unbestätigte Sammlungen werden frühestens nach zwei Sekunden erneut angefordert, höchstens 20 IDs pro Paket. Bereits vor dem Laden gemeldete Drops sind erst nach einer neuen Spawn-Meldung bekannt.
+- **Auto Equip Best Bubblets** ruft alle zehn Sekunden den bestätigten `BubbletEquipBestRequest` auf. Die Auswahl der besten vorhandenen Bubblets übernimmt das Spiel.
+- **Auto Upgrades** versucht alle fünf Sekunden je eine Stufe von Bubble Value, Bubble Spawn Rate, Max Bubbles, Multi Pop Chance und Luck in dieser Reihenfolge. Die Kaufentscheidung wird vom Server bestätigt oder abgelehnt; fehlendes Geld bei einem Upgrade blockiert die weiteren Kategorien nicht.
+
+Ausschalten und Unload verhindern weitere Anfragen, auch nach einer verzögerten Upgrade-Antwort. Laufende Serveranfragen lassen sich nicht zurücknehmen. Grundlage sind die Cobalt-Logs vom 13.09.2026 und der gezeigte Bubble-Ordner. Zielwahl, Drop-Verwaltung, Moduswechsel und Abbrüche sind lokal getestet. Treffer, Sammelreichweite und der vollständige Autofarm sind noch nicht live bestätigt; der Wurfzähler zählt Anfragen, keine bestätigten Treffer.
+
 ## Games List
 
-Die Liste enthält **Chicken Farm / 137233438285284**, **Sell Ores / 122572082932179** und **Fishing Chef / 88599461076137**. Jedes Spiel hat sein eigenes Skript im Ordner `src/games`. Die zugehörige Listendatei ist `src/gameslist.json`; sie bestimmt auch, welches Modul geladen wird und welche Spieleinstellungen erhalten bleiben.
+Die Liste enthält **Chicken Farm / 137233438285284**, **Sell Ores / 122572082932179** **Fishing Chef / 88599461076137** und **Pop Bubbles / 72390882197205**. Jedes Spiel hat sein eigenes Skript im Ordner `src/games`. Die zugehörige Listendatei ist `src/gameslist.json`; sie bestimmt auch, welches Modul geladen wird und welche Spieleinstellungen erhalten bleiben.
 
 Ein Klick auf einen Spieleintrag oder dessen Play-Symbol fragt die aktuelle öffentliche Serverliste bei Roblox ab und wählt einen laufenden Server mit freien Plätzen. Volle Server, leere Einträge und der aktuelle `game.JobId` werden übersprungen. Server-IDs werden nicht gespeichert. Pro Suche werden höchstens drei Seiten geprüft; bei einem fehlgeschlagenen Beitritt wird die Liste erneut abgefragt und insgesamt höchstens drei verschiedene Server versucht.
 
@@ -104,7 +115,7 @@ Bei einem unbekannten Spiel zeigt der Game-Tab **Game not supported** mit der ak
 
 WindUI lässt sich mit **Insert (Einfg)** aus- und einblenden. Die kleine **LUB**-Schaltfläche öffnet das Fenster ebenfalls.
 
-Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Chicken Farm und Sell Ores haben getrennte gespeicherte Einstellungen; Fishing Chef wird pro Sitzung gestartet; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.10.1; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
+Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Chicken Farm und Sell Ores haben getrennte gespeicherte Einstellungen; Fishing Chef wird pro Sitzung gestartet; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.11.0; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
 
 Optional kann die Startdatei lokal als `LUB/LUB.lua` im Workspace der Ausführungsumgebung abgelegt und so ausgeführt werden:
 
@@ -138,7 +149,7 @@ python tools/test.py --luau-dir .tools/luau
 
 Der Build braucht nur Python 3. Für die Tests werden `luau` und `luau-compile` aus den [offiziellen Luau-Releases](https://github.com/luau-lang/luau/releases) benötigt. Der Build prüft eindeutige Place-IDs und die Übereinstimmung zwischen Games List und den enthaltenen Spielskripten.
 
-Geprüft werden sieben Luau-Dateien einschließlich Startdatei und 85 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Chicken-Farm-Ablauf, automatische Basiswahl, Sell-Ores-Prompt-Reihenfolge und Wartezeiten, Roll-Käufe, Verkauf, verfügbare Belohnungen, Upgrade-Käufe, Ofen-Durchsatz und Erzentscheidungen, Entladen sowie Spielbeitritt, Insert-Taste, getrennte Einstellungen, unbekannte Spiele und Versionswechsel. Die Beitrittstests decken aktuelle/volle Server, Pagination, HTTP-Fehler, begrenzte Wiederholungen, Zugriffsablehnungen, Roblox-Dialog, Mehrfachklicks, Timeouts und Abbruch beim Entladen ab. Die öffentlichen Serverlisten und die Zuordnung der Startplätze wurden über die Roblox-API geprüft. Die Fishing-Chef-Tests prüfen zusätzlich die Kundenbestellungen, Rezeptauswahl, getrennte Modi, Rezeptfreischaltungen, benötigten Fischarten, Favoriten und Eigentümer, abgeschaltete Restaurants, Abbrüche, Versionsschutz durch Laufkennungen, verzögerte Antworten, Fehler und Zeitlimits. Die Darstellung und der vollständige Restaurantablauf wurden nicht live verifiziert; der oben beschriebene einzelne Angeltest ist davon ausgenommen.
+Geprüft werden acht Luau-Dateien einschließlich Startdatei und 91 Verhaltenstests. Die Tests simulieren Roblox und die API von WindUI 1.6.66: Chicken-Farm-Ablauf, automatische Basiswahl, Sell-Ores-Prompt-Reihenfolge und Wartezeiten, Roll-Käufe, Verkauf, verfügbare Belohnungen, Upgrade-Käufe, Ofen-Durchsatz und Erzentscheidungen, Entladen sowie Spielbeitritt, Insert-Taste, getrennte Einstellungen, unbekannte Spiele und Versionswechsel. Die Beitrittstests decken aktuelle/volle Server, Pagination, HTTP-Fehler, begrenzte Wiederholungen, Zugriffsablehnungen, Roblox-Dialog, Mehrfachklicks, Timeouts und Abbruch beim Entladen ab. Die öffentlichen Serverlisten und die Zuordnung der Startplätze wurden über die Roblox-API geprüft. Die Fishing-Chef-Tests prüfen zusätzlich die Kundenbestellungen, Rezeptauswahl, getrennte Modi, Rezeptfreischaltungen, benötigten Fischarten, Favoriten und Eigentümer, abgeschaltete Restaurants, Abbrüche, Versionsschutz durch Laufkennungen, verzögerte Antworten, Fehler und Zeitlimits. Die Darstellung und der vollständige Restaurantablauf wurden nicht live verifiziert; der oben beschriebene einzelne Angeltest ist davon ausgenommen.
 
 ## Herkunft
 
