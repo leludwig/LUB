@@ -91,7 +91,7 @@ Ab 2.13.0 enthält LUB Pop Bubbles mit fünf unabhängig zuschaltbaren, zunächs
 - **Auto Equip Best Bubblets** ruft alle zehn Sekunden den bestätigten `BubbletEquipBestRequest` auf. Die Auswahl der besten vorhandenen Bubblets übernimmt das Spiel.
 - **Auto Upgrades** versucht alle fünf Sekunden je eine Stufe von Bubble Value, Bubble Spawn Rate, Max Bubbles, Multi Pop Chance und Luck in dieser Reihenfolge. Die Kaufentscheidung wird vom Server bestätigt oder abgelehnt; fehlendes Geld bei einem Upgrade blockiert die weiteren Kategorien nicht.
 
-**Auto Upgrade Bubblets** fordert alle 0,5 Sekunden für die drei in den Logs bestätigten ausgerüsteten Slots 0–2 das bezahlbare Maximum an. **Auto Rebirth** sammelt auch ohne Autofarm bekannte Flammen und fordert alle fünf Sekunden einen Rebirth an; nicht erfüllte Voraussetzungen werden erneut geprüft, nur eine positive Serverantwort wird als Erfolg angezeigt. Beide Schalter starten ausgeschaltet. Normale Upgrades und Rebirth laufen unabhängig; ausgegebenes Geld kann daher die nächste Rebirth-Bedingung verzögern.
+**Auto Upgrade Bubblets** fordert mit 0,1 Sekunden Pause nach den Serverantworten für die drei in den Logs bestätigten ausgerüsteten Slots 0–2 das bezahlbare Maximum an. **Auto Rebirth** sammelt auch ohne Autofarm bekannte Flammen und fordert alle fünf Sekunden einen Rebirth an; nicht erfüllte Voraussetzungen werden erneut geprüft, nur eine positive Serverantwort wird als Erfolg angezeigt. Beide Schalter starten ausgeschaltet. Normale Upgrades und Rebirth laufen unabhängig; ausgegebenes Geld kann daher die nächste Rebirth-Bedingung verzögern.
 
 Ausschalten und Unload verhindern weitere Anfragen, auch nach einer verzögerten Upgrade-Antwort. Laufende Serveranfragen lassen sich nicht zurücknehmen. Grundlage sind die Cobalt-Logs vom 13.09.2026 und der gezeigte Bubble-Ordner. Zielwahl, Drop-Verwaltung, Moduswechsel und Abbrüche sind lokal getestet. Treffer, Sammelreichweite und der vollständige Autofarm sind noch nicht live bestätigt; der Wurfzähler zählt Anfragen, keine bestätigten Treffer.
 
@@ -117,7 +117,7 @@ Bei einem unbekannten Spiel zeigt der Game-Tab **Game not supported** mit der ak
 
 WindUI lässt sich mit **Insert (Einfg)** aus- und einblenden. Die kleine **LUB**-Schaltfläche öffnet das Fenster ebenfalls.
 
-Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Chicken Farm und Sell Ores haben getrennte gespeicherte Einstellungen; Fishing Chef wird pro Sitzung gestartet; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.13.2; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
+Mit Dateizugriff werden die Einstellungen unter `LUB/Config.json` gespeichert. Chicken Farm und Sell Ores haben getrennte gespeicherte Einstellungen; Fishing Chef wird pro Sitzung gestartet; alte Einträge für nicht unterstützte Spiele werden entfernt. Ohne Dateizugriff gelten die Einstellungen für die Sitzung. Das erneute Ausführen öffnet ein bereits laufendes LUB 2.13.3; eine noch laufende Oberfläche der vorherigen LUB-Version wird beim Upgrade beendet und ersetzt.
 
 Optional kann die Startdatei lokal als `LUB/LUB.lua` im Workspace der Ausführungsumgebung abgelegt und so ausgeführt werden:
 
