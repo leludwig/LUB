@@ -540,7 +540,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.13.4" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.13.5" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -765,7 +765,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.13.4")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.13.5")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -1790,10 +1790,15 @@ local function bubbles(options)
             return {success=name ~= "BubbleValue", message="Insufficient cash"}
         end
         s.node("RemoteFunction", "BubbletLevelUpRequest", remotes).InvokeServer = function(_, request)
-            expect(request.mode == "max" and request.target.kind == "equipped")
+            expect(request.mode == "single" and request.target.kind == "equipped")
             table.insert(s.levelUps, request.target.slotIndex)
             if options.delay then s.globals.task.wait(3) end
-            return {ok=request.target.slotIndex ~= 1}
+            if s.upgradeCash ~= nil then
+                if s.upgradeCash < 1 then return {ok=false, error="insufficient_cash"} end
+                s.upgradeCash -= 1
+                return {ok=true, levelsGained=1}
+            end
+            return {ok=request.target.slotIndex ~= 1, error="max_reached"}
         end
         s.rebirths = 0
         s.node("RemoteFunction", "RebirthRequest", remotes).InvokeServer = function(_, ...)
@@ -1906,15 +1911,15 @@ end)
 
 test("Pop Bubbles levels equipped Bubblets and cancels delayed follow-up slots", function()
     local s = bubbles()
-    s:click("Auto Upgrade Bubblets"); s:advance(0.05)
+    s:click("Auto Upgrade Bubblets"); s:advance(0.005)
     expect(table.concat(s.levelUps, ",") == "0,1,2,3,4,5")
     expect(s:find("Auto Upgrade Bubblets").Value, "An unavailable slot must not block the others")
-    s:advance(0.3)
-    expect(#s.levelUps == 24, "Bubblet upgrades should recheck after 0.1 seconds")
+    s:advance(0.09)
+    expect(#s.levelUps == 24, "Bubblet upgrades should recheck after one frame")
     s:click("Auto Upgrade Bubblets"); s:advance(6)
     expect(#s.levelUps == 24)
     s:find("Equipped Bubblet slots"):Set(8)
-    s:click("Auto Upgrade Bubblets"); s:advance(0.05)
+    s:click("Auto Upgrade Bubblets"); s:advance(0.005)
     expect(#s.levelUps == 32 and s.levelUps[32] == 7, "Extra equipped slots were skipped")
     s:click("Auto Upgrade Bubblets")
     local delayed = bubbles({delay=true})
@@ -1994,6 +1999,20 @@ test("Pop Bubbles targets transparent Outer parts when no visible parts exist", 
     s.near:Destroy()
     s:advance(0.5)
     expect(s.throws[#s.throws].direction.X == 1, "Did not select the remaining Outer")
+end)
+
+test("Pop Bubbles resumes single-level upgrades at the unpaid slot for fair spending", function()
+    local s = bubbles()
+    s.upgradeCash = 1
+    s:click("Auto Upgrade Bubblets"); s:advance(0.005)
+    expect(table.concat(s.levelUps, ",") == "0,1")
+    s.upgradeCash = 1
+    s:advance(0.03)
+    expect(table.concat(s.levelUps, ",") == "0,1,1,2", "Restarted at slot zero instead of continuing")
+    s:click("Auto Upgrade Bubblets")
+    s.upgradeCash = 1
+    s:click("Auto Upgrade Bubblets"); s:advance(0.03)
+    expect(s.levelUps[#s.levelUps-1] == 2 and s.levelUps[#s.levelUps] == 3)
 end)
 
 print(string.format("%d behavioral tests passed", passed))

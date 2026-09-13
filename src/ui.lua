@@ -1,4 +1,4 @@
--- LUB 2.13.4: WindUI 1.6.66, with Game, Games List and Settings only.
+-- LUB 2.13.5: WindUI 1.6.66, with Game, Games List and Settings only.
 local env = getgenv()
 local runtime = env.LUBRuntime
 local source = game:HttpGet("https://github.com/Footagesus/WindUI/releases/download/1.6.66/main.lua")

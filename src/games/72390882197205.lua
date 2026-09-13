@@ -9,6 +9,7 @@ return function(tab)
     local status
     local throwDelay, nextThrow, throws = 0, 0, 0
     local bubbletSlots = 6
+    local nextBubbletSlot = 0
     local function show(message)
         if runtime.alive and status then status:SetDesc(message) end
     end
@@ -136,13 +137,16 @@ return function(tab)
     section:Slider({Title="Equipped Bubblet slots", Value={Min=1, Max=12, Default=6}, Step=1, Callback=function(value)
         bubbletSlots = math.clamp(math.floor(tonumber(value) or 6), 1, 12)
     end})
-    addMode("Auto Upgrade Bubblets", 0.1, function(current)
-        -- Upgrade each equipped slot separately, including identical Bubblets.
-        for slot = 0, bubbletSlots - 1 do
+    addMode("Auto Upgrade Bubblets", 0.03, function(current)
+        -- One level per slot. Resume at the unpaid slot when cash runs out.
+        for _ = 1, bubbletSlots do
             if not current() then return end
-            local result = remotes.BubbletLevelUpRequest:InvokeServer({target={slotIndex=slot, kind="equipped"}, mode="max"})
+            local slot = nextBubbletSlot % bubbletSlots
+            local result = remotes.BubbletLevelUpRequest:InvokeServer({target={slotIndex=slot, kind="equipped"}, mode="single"})
             if not current() then return end
             assert(type(result) == "table" and type(result.ok) == "boolean", "Invalid Bubblet upgrade response")
+            if not result.ok and result.error == "insufficient_cash" then return end
+            nextBubbletSlot = (slot + 1) % bubbletSlots
         end
     end)
     local upgrades = {"BubbleValue", "BubbleSpawnRate", "MaxBubbles", "MultiPopChance", "Luck"}
