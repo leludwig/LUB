@@ -4,6 +4,7 @@ return function(tab)
     local player = game:GetService("Players").LocalPlayer
     local remotes = game:GetService("ReplicatedStorage").Remotes
     local weaponClass = require(player.PlayerScripts.Weapon.WeaponController).WeaponController
+    local bubbleRenderer = require(player.PlayerScripts.Bubbles.BubbleRenderer).BubbleRenderer
     local drops = {Cash = {}, Gem = {}, Essence = {}}
     local modes, controls = {}, {}
     local status
@@ -26,12 +27,26 @@ return function(tab)
             end
         end))
     end
+    local seenFlames = setmetatable({}, {__mode="k"})
     local function collectDrops(onlyKind)
+        -- DropRenderer names existing flame models EssenceDrop_<dropId>.
+        local folder = workspace:FindFirstChild("LocalEssenceDrops_" .. player.UserId)
+        if folder then
+            for _, object in ipairs(folder:GetChildren()) do
+                local id = tonumber(object.Name:match("^EssenceDrop_(%d+)$"))
+                if id and not seenFlames[object] then
+                    seenFlames[object] = true
+                    if not drops.Essence[id] then
+                        drops.Essence[id] = {expires=os.clock()+180, nextTry=0, visual=object}
+                    end
+                end
+            end
+        end
         for kind, pending in pairs(drops) do
             if onlyKind and kind ~= onlyKind then continue end
             local ids = {}
             for id, drop in pairs(pending) do
-                if os.clock() >= drop.expires then pending[id] = nil
+                if os.clock() >= drop.expires or (drop.visual and not drop.visual.Parent) then pending[id] = nil
                 elseif os.clock() >= drop.nextTry and #ids < 20 then
                     table.insert(ids, id)
                     drop.nextTry = os.clock() + 2
@@ -40,60 +55,54 @@ return function(tab)
             if #ids > 0 then remotes[kind .. "DropCollect"]:FireServer(ids) end
         end
     end
-    local function farm()
-        if os.clock() >= nextThrow then
+    local hookedWeapon, previousTarget, targetHook, observedFireTime
+    local function restoreTarget()
+        if hookedWeapon and rawget(hookedWeapon, "getTargetPosition") == targetHook then
+            hookedWeapon.getTargetPosition = previousTarget
+        end
+        hookedWeapon, previousTarget, targetHook = nil, nil, nil
+    end
+    local function bindTarget(weapon)
+        if hookedWeapon == weapon then return end
+        restoreTarget()
+        hookedWeapon, previousTarget = weapon, rawget(weapon, "getTargetPosition")
+        observedFireTime = weapon.lastFireTime
+        local original = weapon.getTargetPosition
+        targetHook = function(self, root, flat, manual)
+            if not runtime.alive or not modes.Autofarm.enabled or manual
+                or self.isHoldingMouseButton or self.isHoldingGamepadTrigger then
+                return original(self, root, flat, manual)
+            end
+            if os.clock() < nextThrow then return nil end
             local char = player.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            local folder = workspace:FindFirstChild("ClientRenderedBubbles_" .. player.UserId)
-            local target, nearest
-            if root and folder then
-                for _, bubble in ipairs(folder:GetChildren()) do
-                    -- Live bubbles use a transparent Outer part as their target.
-                    -- Model pivots and transparency do not locate/render it reliably.
-                    local position, largest
-                    local parts = bubble:IsA("BasePart") and {bubble} or bubble:GetDescendants()
-                    for _, part in ipairs(parts) do
-                        if part:IsA("BasePart") and (part.Name == "Outer" or part.Transparency < 1) then
-                            local size = part.Size
-                            local volume = size.X * size.Y * size.Z
-                            if part.Name == "Outer" and volume > 0 then
-                                position = part.Position
-                                break
-                            end
-                            if volume > 0 and (not largest or volume > largest) then
-                                largest, position = volume, part.Position
-                            end
-                        end
-                    end
-                    if position then
-                        local dx, dy, dz = position.X-root.Position.X, position.Y-root.Position.Y, position.Z-root.Position.Z
-                        local distance = math.sqrt(dx*dx + dy*dy + dz*dz)
-                        if distance > 0.01 and (not nearest or distance < nearest) then
-                            nearest = distance
-                            target = position
-                        end
-                    end
-                end
+            if not char or char:FindFirstChild("HumanoidRootPart") ~= root then return nil end
+            -- The renderer excludes predicted pops and disappearing/hidden bubbles.
+            local model = bubbleRenderer:getClosestBubbleModelToPosition(root.Position)
+            local part = model and model.Parent and model.PrimaryPart
+            if not part or not part.Parent then return nil end
+            local position = part.Position
+            local dx, dy, dz = position.X-root.Position.X, position.Y-root.Position.Y, position.Z-root.Position.Z
+            if dx*dx+dy*dy+dz*dz <= 0.0001 then return nil end
+            return flat and Vector3.new(position.X, root.Position.Y, position.Z) or position
+        end
+        weapon.getTargetPosition = targetHook
+    end
+    local function farm()
+        local weapon = weaponClass:getInstance()
+        if weapon then
+            bindTarget(weapon)
+            -- Also routes the already-running native throw loop to our live target;
+            -- it can no longer consume the shared cooldown with another target.
+            weapon:throw(false)
+            if weapon.lastFireTime ~= observedFireTime then
+                observedFireTime = weapon.lastFireTime
+                throws += 1
+                nextThrow = os.clock() + throwDelay
+                show("Throws observed: " .. throws .. " | Collecting Cash, Gems and Flames")
             end
-            local weapon = weaponClass:getInstance()
-            if target and weapon and weapon.cachedRoot == root then
-                -- throw() synchronously creates the local projectile, reports it
-                -- to the server and invokes the game's hit-system callbacks.
-                -- Override only this call's target; leave manual/auto input intact.
-                local previous = rawget(weapon, "getTargetPosition")
-                local before = weapon.lastFireTime
-                weapon.getTargetPosition = function() return target end
-                local ok, err = pcall(weapon.throw, weapon, false)
-                weapon.getTargetPosition = previous
-                if not ok then error(err, 0) end
-                if weapon.lastFireTime ~= before then
-                    throws += 1
-                    nextThrow = os.clock() + throwDelay
-                    show("Throws fired: " .. throws .. " | Collecting Cash, Gems and Flames")
-                end
-            else
-                show("Waiting for character and rendered bubbles")
-            end
+        else
+            restoreTarget()
+            show("Waiting for weapon controller")
         end
         collectDrops()
     end
@@ -104,7 +113,10 @@ return function(tab)
         controls[title] = section:Toggle({Title=title, Value=false, Callback=function(value)
             state.enabled = value == true and runtime.alive
             state.generation += 1
-            if not state.enabled then show(title .. " stopped") end
+            if not state.enabled then
+                if title == "Autofarm" then restoreTarget() end
+                show(title .. " stopped")
+            end
             if state.worker or not state.enabled then return end
             state.worker = true
             task.spawn(function()
@@ -114,6 +126,7 @@ return function(tab)
                     local ok, err = pcall(action, current)
                     if not ok and current() then
                         state.enabled = false
+                        if title == "Autofarm" then restoreTarget() end
                         controls[title]:Set(false, false)
                         show(title .. " stopped: " .. tostring(err))
                         warn("LUB Pop Bubbles: " .. tostring(err))
@@ -168,6 +181,7 @@ return function(tab)
     end)
     status = section:Paragraph({Title="Farm Status", Desc="Stopped"})
     table.insert(runtime.cleanups, function()
+        restoreTarget()
         for _, state in pairs(modes) do state.enabled = false; state.generation += 1 end
     end)
 end

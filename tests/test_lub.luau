@@ -540,7 +540,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.13.5" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.14.0" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -765,7 +765,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.13.5")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.14.0")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -1746,6 +1746,7 @@ local function bubbles(options)
             part.Position = self.globals.Vector3.new(x,y,z)
             part.Size = self.globals.Vector3.new(2,2,2)
             part.Transparency = 0
+            model.PrimaryPart = part
             return model
         end
         s.near = s:bubble(0,10,0)
@@ -1761,6 +1762,7 @@ local function bubbles(options)
             expect(manual == false, "Do not queue manual mouse-target shots")
             if s.now-self.lastFireTime < 1/self.cachedFireRate then return end
             local target = self:getTargetPosition(self.cachedRoot, false, manual)
+            if not target then return end
             local origin = self.cachedRoot.Position
             local dx,dy,dz = target.X-origin.X,target.Y-origin.Y,target.Z-origin.Z
             local distance = math.sqrt(dx*dx+dy*dy+dz*dz)
@@ -1771,6 +1773,18 @@ local function bubbles(options)
         end
         local scripts = s.node("Folder", "PlayerScripts", player)
         s.node("ModuleScript", "WeaponController", s.node("Folder", "Weapon", scripts)).Module = {WeaponController=class}
+        s.node("ModuleScript", "BubbleRenderer", s.node("Folder", "Bubbles", scripts)).Module = {BubbleRenderer={getClosestBubbleModelToPosition=function(_, position)
+            if not s.folder.Parent then return nil end
+            local nearest, result
+            for _, model in ipairs(s.folder:GetChildren()) do
+                if not model.predictedPop and model.PrimaryPart and model.PrimaryPart.Parent then
+                    local point = model.PrimaryPart.Position
+                    local distance = (point.X-position.X)^2+(point.Y-position.Y)^2+(point.Z-position.Z)^2
+                    if not nearest or distance < nearest then nearest, result = distance, model end
+                end
+            end
+            return result
+        end}}
         s.globals.require = function(module) return assert(module.Module) end
         s.node("RemoteEvent", "ThrowWeapon", remotes).FireServer = function(_, direction, id, aim)
             expect(aim == true and id:find("548788391_",1,true) == 1)
@@ -1901,6 +1915,7 @@ test("Pop Bubbles aims at visible geometry instead of stale pivots and hidden po
     s.near.GetPivot = function() return {Position=s.globals.Vector3.new(0,0,-1)} end
     local hidden = s:bubble(0,0,1)
     hidden.Bubble.Transparency = 1
+    hidden.predictedPop = true
     s:click("Autofarm"); s:advance(1.1)
     expect(#s.throws >= 3 and #s.throws <= 4)
     for _, throw in ipairs(s.throws) do expect(throw.direction.Y == 1) end
@@ -1949,12 +1964,13 @@ test("Pop Bubbles restores normal aiming after shots errors and respects weapon 
     s.weapon.cachedFireRate = 10
     s:click("Autofarm"); s:advance(1)
     expect(#s.throws >= 7 and #s.throws <= 11, "Artificial throw delay limited the weapon")
-    expect(rawget(s.weapon, "getTargetPosition") == nil and s.weapon.getTargetPosition == normal)
+    expect(s.weapon.getTargetPosition ~= normal, "Native throw loop must share the target override")
     s.weapon.cachedFireRate = 1
     local count = #s.throws
     s:advance(0.5)
     expect(#s.throws == count, "Bypassed upgraded weapon controller cooldown")
     s:click("Autofarm"); s:advance(1)
+    expect(rawget(s.weapon, "getTargetPosition") == nil and s.weapon.getTargetPosition == normal)
     expect(s.weapon:getTargetPosition().Z == -10)
     local failed = bubbles({reject=true})
     local existing = function() return failed.globals.Vector3.new(1,0,0) end
@@ -2013,6 +2029,36 @@ test("Pop Bubbles resumes single-level upgrades at the unpaid slot for fair spen
     s.upgradeCash = 1
     s:click("Auto Upgrade Bubblets"); s:advance(0.03)
     expect(s.levelUps[#s.levelUps-1] == 2 and s.levelUps[#s.levelUps] == 3)
+end)
+
+test("Pop Bubbles routes native automatic shots to live targets and restores manual aiming", function()
+    local s = bubbles()
+    s.weapon.isAutoThrowEnabled = true
+    s:click("Autofarm"); s:advance(0.01)
+    s.near.predictedPop = true -- still present in Workspace, but already hit
+    s.weapon.lastFireTime = -100
+    s.weapon:throw(false) -- native RenderStepped loop fires before LUB can poll
+    expect(s.throws[#s.throws].direction.X == 1, "Native loop fired at old mouse/auto target")
+    s.weapon.isHoldingMouseButton = true
+    s.weapon.lastFireTime = -100
+    s.weapon:throw(false)
+    expect(s.throws[#s.throws].direction.Z == -1, "Manual aim was stolen")
+    s.weapon.isHoldingMouseButton = false
+    s:click("Unload LUB")
+    expect(s.weapon.isAutoThrowEnabled and rawget(s.weapon, "getTargetPosition") == nil)
+end)
+
+test("Pop Bubbles discovers existing own flames and does not requeue collected visuals", function()
+    local s = bubbles()
+    local folder = s.node("Folder", "LocalEssenceDrops_548788391", s.globals.workspace)
+    local flame = s.node("Model", "EssenceDrop_117", folder)
+    s.node("Model", "EssenceDrop_999", s.node("Folder", "LocalEssenceDrops_other", s.globals.workspace))
+    s:click("Auto Rebirth"); s:advance(0.1)
+    expect(#s.collections == 1 and s.collections[1].ids[1] == 117)
+    s:drop("Essence", {{kind="Remove", dropId=117, reason="Collected"}})
+    s:advance(6)
+    expect(#s.collections == 1, "Collection animation was mistaken for a new drop")
+    flame:Destroy()
 end)
 
 print(string.format("%d behavioral tests passed", passed))
