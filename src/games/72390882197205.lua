@@ -8,6 +8,7 @@ return function(tab)
     local modes, controls = {}, {}
     local status
     local throwDelay, nextThrow, throws = 0, 0, 0
+    local bubbletSlots = 6
     local function show(message)
         if runtime.alive and status then status:SetDesc(message) end
     end
@@ -132,9 +133,12 @@ return function(tab)
         local result = remotes.BubbletEquipBestRequest:InvokeServer()
         assert(type(result) == "table" and result.ok == true, "Equip Best was not confirmed")
     end)
+    section:Slider({Title="Equipped Bubblet slots", Value={Min=1, Max=12, Default=6}, Step=1, Callback=function(value)
+        bubbletSlots = math.clamp(math.floor(tonumber(value) or 6), 1, 12)
+    end})
     addMode("Auto Upgrade Bubblets", 0.1, function(current)
-        -- Slots 0, 1 and 2 are confirmed by the supplied level-up calls.
-        for slot = 0, 2 do
+        -- Upgrade each equipped slot separately, including identical Bubblets.
+        for slot = 0, bubbletSlots - 1 do
             if not current() then return end
             local result = remotes.BubbletLevelUpRequest:InvokeServer({target={slotIndex=slot, kind="equipped"}, mode="max"})
             if not current() then return end

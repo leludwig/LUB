@@ -6,21 +6,29 @@ local http = game:GetService("HttpService")
 assert(game.PlaceId == 72390882197205, "Run this diagnostic in Pop Bubbles")
 local report = {placeId=game.PlaceId, version=getgenv().LUBRuntime and getgenv().LUBRuntime.version,
     capturedAt=os.time(), errors={}, scripts={}, scriptIndex={}, events={}, connections={}}
-local function plain(value, depth, seen)
+local function cleanString(value)
+    if utf8.len(value) then return value end
+    -- Decompiled source can contain raw non-UTF-8 bytes, rejected by JSONEncode.
+    return "[non-UTF8 bytes escaped] " .. value:gsub("[\128-\255]", function(byte)
+        return string.format("\\x%02X", string.byte(byte))
+    end)
+end
+local function plain(value, depth, seen, wholeReport)
     local kind = typeof(value)
-    if kind == "nil" or kind == "string" or kind == "boolean" then return value end
+    if kind == "string" then return cleanString(value) end
+    if kind == "nil" or kind == "boolean" then return value end
     if kind == "number" then return value == value and math.abs(value) < math.huge and value or tostring(value) end
-    if kind == "Instance" then return value:GetFullName() end
-    if kind ~= "table" then return tostring(value) end
+    if kind == "Instance" then return cleanString(value:GetFullName()) end
+    if kind ~= "table" then return cleanString(tostring(value)) end
     depth, seen = depth or 0, seen or {}
-    if depth >= 6 then return "[depth limit]" end
+    if depth >= (wholeReport and 20 or 6) then return "[depth limit]" end
     if seen[value] then return "[reference]" end
     seen[value] = true
     local out, count = {}, 0
     for key, child in pairs(value) do
         count += 1
-        if count > 300 then out._truncated = true; break end
-        out[tostring(key)] = plain(child, depth+1, seen)
+        if count > (wholeReport and 10000 or 300) then out._truncated = true; break end
+        out[cleanString(tostring(key))] = plain(child, depth+1, seen, wholeReport)
     end
     seen[value] = nil
     return out
@@ -119,11 +127,29 @@ if type(decompile) ~= "function" then table.insert(report.errors, "decompile is 
 while os.clock()-started < 15 do task.wait(0.1) end
 for _, connection in ipairs(connections) do pcall(function() connection:Disconnect() end) end
 report.after = attempt("Final state", snapshot)
-local output = http:JSONEncode(report)
+local safeReport = plain(report, 0, nil, true)
+local encoded, output = pcall(function() return http:JSONEncode(safeReport) end)
+local extension = ".json"
+if not encoded then
+    table.insert(report.errors, "JSONEncode failed; exporting text instead: " .. tostring(output))
+    -- Preserve the complete report even if the executor's JSON encoder fails.
+    local function textValue(value)
+        if type(value) == "string" then return string.format("%q", value) end
+        if type(value) ~= "table" then return tostring(value) end
+        local parts = {"{"}
+        for key, child in pairs(value) do
+            table.insert(parts, "[" .. string.format("%q", key) .. "]=" .. textValue(child) .. ",\n")
+        end
+        table.insert(parts, "}")
+        return table.concat(parts)
+    end
+    output = "LUB diagnostic (text fallback)\n" .. textValue(plain(report, 0, nil, true))
+    extension = ".txt"
+end
 local saved = attempt("Save diagnostic", function()
     assert(type(writefile) == "function" and type(makefolder) == "function" and type(isfolder) == "function", "File APIs unavailable")
     if not isfolder("LUB") then makefolder("LUB") end
-    local path = "LUB/PopBubbles-Diagnostic-" .. report.capturedAt .. ".json"
+    local path = "LUB/PopBubbles-Diagnostic-" .. report.capturedAt .. extension
     writefile(path, output)
     return path
 end)

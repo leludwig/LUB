@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-from build import ROOT, build, source_table
+from build import ROOT, build, source_table, quote
 
 
 def lua(value):
@@ -24,7 +24,7 @@ def main():
     compiler = args.luau_dir / f"luau-compile{suffix}"
     runtime = args.luau_dir / f"luau{suffix}"
     assert (ROOT / "LUB.lua").read_text(encoding="utf-8") == build(), "Run tools/build.py to update LUB.lua"
-    files = sorted((ROOT / "src").rglob("*.lua")) + [ROOT / "LUB.lua"]
+    files = sorted((ROOT / "src").rglob("*.lua")) + [ROOT / "LUB.lua", ROOT / "diagnostics/pop-bubbles.lua"]
     for path in files:
         result = subprocess.run([str(compiler), "--null", str(path)], capture_output=True, text=True)
         if result.returncode:
@@ -36,6 +36,10 @@ def main():
     with tempfile.TemporaryDirectory(prefix="lub-tests-") as directory:
         path = Path(directory) / "run.luau"
         path.write_text(runner, encoding="utf-8", newline="\n")
+        subprocess.run([str(runtime), str(path)], check=True)
+        diagnostic = "local DIAGNOSTIC_SOURCE = " + quote((ROOT / "diagnostics/pop-bubbles.lua").read_text(encoding="utf-8")) + "\n"
+        diagnostic += (ROOT / "tests/test_diagnostic.luau").read_text(encoding="utf-8")
+        path.write_text(diagnostic, encoding="utf-8", newline="\n")
         subprocess.run([str(runtime), str(path)], check=True)
 
 
