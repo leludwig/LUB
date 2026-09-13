@@ -128,7 +128,7 @@ return function(tab)
         local result = remotes.BubbletEquipBestRequest:InvokeServer()
         assert(type(result) == "table" and result.ok == true, "Equip Best was not confirmed")
     end)
-    addMode("Auto Upgrade Bubblets", 5, function(current)
+    addMode("Auto Upgrade Bubblets", 0.5, function(current)
         -- Slots 0, 1 and 2 are confirmed by the supplied level-up calls.
         for slot = 0, 2 do
             if not current() then return end
