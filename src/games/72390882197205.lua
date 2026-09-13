@@ -46,14 +46,18 @@ return function(tab)
             local target, nearest
             if root and folder then
                 for _, bubble in ipairs(folder:GetChildren()) do
-                    -- Pivots can remain at the template origin while the visible
-                    -- mesh moves. Aim at the largest visible part, excluding pools.
+                    -- Live bubbles use a transparent Outer part as their target.
+                    -- Model pivots and transparency do not locate/render it reliably.
                     local position, largest
                     local parts = bubble:IsA("BasePart") and {bubble} or bubble:GetDescendants()
                     for _, part in ipairs(parts) do
-                        if part:IsA("BasePart") and part.Transparency < 1 then
+                        if part:IsA("BasePart") and (part.Name == "Outer" or part.Transparency < 1) then
                             local size = part.Size
                             local volume = size.X * size.Y * size.Z
+                            if part.Name == "Outer" and volume > 0 then
+                                position = part.Position
+                                break
+                            end
                             if volume > 0 and (not largest or volume > largest) then
                                 largest, position = volume, part.Position
                             end

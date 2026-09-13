@@ -540,7 +540,7 @@ end
 
 test("WindUI has exactly three tabs and all registered games are listed and can be joined", function()
     local s = setup()
-    expect(s.window.Config.Title == "LUB 2.13.1" and s.window.Config.NewElements == true)
+    expect(s.window.Config.Title == "LUB 2.13.2" and s.window.Config.NewElements == true)
     expect(#s.window.Tabs == 3 and s.window.Selected == 1)
     expect(s.window.Tabs[1].Title == "Game")
     expect(s.window.Tabs[2].Title == "Games List")
@@ -765,7 +765,7 @@ test("old UI upgrades, old game settings are removed, settings restore", functio
         ["137233438285284"] = { collect_eggs_only = true },
         ["999"] = { farming = true },
     } })
-    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.13.1")
+    expect(s.legacyStopped and s.globals.LUBRuntime.version == "2.13.2")
     expect(s.globals.LUBRuntime.config["999"] == nil and s.rendering == false)
     expect(s:find("Collect Eggs Only").Value and not s:find("Autofarm").Value)
     s:egg("restored"); s:advance(1)
@@ -1969,6 +1969,27 @@ test("Pop Bubbles collects live flames with farm or rebirth without duplicate re
     expect(#s.collections == 2)
     s:click("Unload LUB"); s:advance(10)
     expect(#s.collections == 2)
+end)
+
+test("Pop Bubbles targets transparent Outer parts when no visible parts exist", function()
+    local s = bubbles()
+    for _, bubble in ipairs(s.folder:GetChildren()) do
+        local outer = bubble.Bubble
+        outer.Name = "Outer"
+        outer.Transparency = 1
+        outer.Size = s.globals.Vector3.new(10,10,10)
+    end
+    s:click("Autofarm"); s:advance(0.2)
+    expect(#s.throws == 1 and s.throws[1].direction.Y == 1)
+    local decoration = s.node("Part", "Decoration", s.near)
+    decoration.Position = s.globals.Vector3.new(0,0,-1)
+    decoration.Size = s.globals.Vector3.new(20,20,20)
+    decoration.Transparency = 0
+    s:advance(0.5)
+    expect(s.throws[#s.throws].direction.Y == 1, "Decoration replaced the transparent target")
+    s.near:Destroy()
+    s:advance(0.5)
+    expect(s.throws[#s.throws].direction.X == 1, "Did not select the remaining Outer")
 end)
 
 print(string.format("%d behavioral tests passed", passed))
